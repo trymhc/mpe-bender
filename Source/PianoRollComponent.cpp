@@ -242,7 +242,7 @@ void PianoRollComponent::updateMarquee(juce::Point<float> pos, const std::vector
 
 void PianoRollComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff17171a));
+    g.fillAll(juce::Colour(0xff000000));
 
     const auto loopLen = processor.getLoopLengthBeats();
     const float h = (float) getHeight();
@@ -250,18 +250,23 @@ void PianoRollComponent::paint(juce::Graphics& g)
     for (int pitch = lowestPitch; pitch <= highestPitch; ++pitch)
     {
         auto yTop = (float) (highestPitch - pitch) * rowHeight;
+        const bool black = isBlackKey(pitch);
 
-        g.setColour(isBlackKey(pitch) ? juce::Colour(0xff222226) : juce::Colour(0xff2e2e33));
+        // keyboard sidebar: real black / white keys
+        g.setColour(black ? juce::Colour(0xff0a0a0a) : juce::Colour(0xffd6d6d6));
         g.fillRect(0.0f, yTop, (float) keyboardWidth, (float) rowHeight);
+        g.setColour(juce::Colour(0xff000000));
+        g.drawHorizontalLine((int) yTop, 0.0f, (float) keyboardWidth);
 
-        g.setColour(isBlackKey(pitch) ? juce::Colour(0xff1c1c20) : juce::Colour(0xff202024));
+        // note area rows
+        g.setColour(black ? juce::Colour(0xff141414) : juce::Colour(0xff1e1e1e));
         g.fillRect((float) keyboardWidth, yTop, (float) getWidth() - keyboardWidth, (float) rowHeight);
 
         if (pitch % 12 == 0)
         {
-            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.setColour(juce::Colours::white.withAlpha(0.18f));
             g.drawHorizontalLine((int) yTop, (float) keyboardWidth, (float) getWidth());
-            g.setColour(juce::Colours::white.withAlpha(0.5f));
+            g.setColour(juce::Colour(0xff000000));
             g.setFont(9.0f);
             g.drawText("C" + juce::String(pitch / 12 - 1), 2, (int) yTop, keyboardWidth - 4, (int) rowHeight,
                        juce::Justification::centredLeft);
@@ -275,11 +280,11 @@ void PianoRollComponent::paint(juce::Graphics& g)
         for (double b = 0.0; b <= loopLen + 1.0e-6; b += step)
             g.drawVerticalLine((int) xForBeat(b), 0.0f, h);
     };
-    if (pixelsPerBeat * 0.25f >= 5.0f) verticals(0.25, juce::Colours::white.withAlpha(0.035f));
-    if (pixelsPerBeat        >= 5.0f) verticals(1.0,  juce::Colours::white.withAlpha(0.11f));
-    verticals(4.0, juce::Colours::white.withAlpha(0.20f));
+    if (pixelsPerBeat * 0.25f >= 5.0f) verticals(0.25, juce::Colours::white.withAlpha(0.05f));
+    if (pixelsPerBeat        >= 5.0f) verticals(1.0,  juce::Colours::white.withAlpha(0.14f));
+    verticals(4.0, juce::Colours::white.withAlpha(0.28f));
 
-    g.setColour(juce::Colours::orange.withAlpha(0.5f));
+    g.setColour(juce::Colours::white.withAlpha(0.45f));
     g.drawVerticalLine((int) xForBeat(loopLen), 0.0f, h);
 
     std::vector<MpeNote> snapshot;
@@ -290,14 +295,22 @@ void PianoRollComponent::paint(juce::Graphics& g)
         juce::Path p;
         buildNotePath(n, p);
 
-        const juce::Colour base = n.isSounding ? juce::Colour(0xffffd23f)
-                                : selected       ? juce::Colour(0xff6cc4ff)
-                                                 : juce::Colour(0xff3f7fbf);
+        const juce::Colour base = selected ? juce::Colour(0xffffffff)
+                                : n.isSounding ? juce::Colour(0xffffffff)
+                                               : juce::Colour(0xff8c8c8c);
 
-        g.setColour(juce::Colours::black.withAlpha(0.35f));
+        // sounding notes get a soft white halo so they read without colour
+        if (n.isSounding)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.18f));
+            g.strokePath(p, juce::PathStrokeType(selected ? 18.0f : 16.0f,
+                                                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        g.setColour(juce::Colours::black.withAlpha(0.55f));
         g.strokePath(p, juce::PathStrokeType(selected ? 12.0f : 10.0f,
                                              juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setColour(base.withAlpha(selected ? 0.95f : 0.8f));
+        g.setColour(base.withAlpha(selected || n.isSounding ? 0.98f : 0.78f));
         g.strokePath(p, juce::PathStrokeType(selected ? 9.0f : 7.0f,
                                              juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     };
@@ -341,9 +354,9 @@ void PianoRollComponent::paint(juce::Graphics& g)
                     const float r = pointRadius - 0.3f;
                     juce::Path d;
                     d.addQuadrilateral(x, y - r, x + r, y, x, y + r, x - r, y);
-                    g.setColour(juce::Colour(0xffffd23f).withAlpha(0.95f));
+                    g.setColour(juce::Colour(0xff9a9a9a));
                     g.fillPath(d);
-                    g.setColour(juce::Colours::black.withAlpha(0.6f));
+                    g.setColour(juce::Colours::black.withAlpha(0.7f));
                     g.strokePath(d, juce::PathStrokeType(1.0f));
                 }
             }
@@ -372,9 +385,9 @@ void PianoRollComponent::paint(juce::Graphics& g)
     {
         juce::Rectangle<float> r(juce::Point<float>(juce::jmin(marqueeA.x, marqueeB.x), juce::jmin(marqueeA.y, marqueeB.y)),
                                  juce::Point<float>(juce::jmax(marqueeA.x, marqueeB.x), juce::jmax(marqueeA.y, marqueeB.y)));
-        g.setColour(juce::Colour(0xff6cc4ff).withAlpha(0.15f));
+        g.setColour(juce::Colours::white.withAlpha(0.12f));
         g.fillRect(r);
-        g.setColour(juce::Colour(0xff6cc4ff).withAlpha(0.8f));
+        g.setColour(juce::Colours::white.withAlpha(0.8f));
         g.drawRect(r, 1.0f);
     }
 

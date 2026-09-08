@@ -226,7 +226,7 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
 
 void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff121214));
+    g.fillAll(juce::Colour(0xff0a0a0a));
 }
 
 void MpePianoRollAudioProcessorEditor::resized()
