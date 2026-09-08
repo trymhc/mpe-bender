@@ -76,21 +76,22 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
    - **click** empty grid = new note; **drag body** = move
    - **drag the right edge** = the note's end bend point: horizontal changes length,
      vertical bends the tail (one 2D handle)
-   - **double‑click** the ribbon = add a **curve diamond** (any number between two
-     bend points); the segment bows through it. **Ctrl+click** = add a **bend point**.
-   - **drag** any point or diamond = shape the curve (time + pitch)
-   - **right‑click** a point/diamond = remove it; **right‑click** the note body = delete
-   - hold **Alt** while dragging = fine / no snap
-   - hold **Shift** while dragging = act as the Select tool for that drag (springs back)
+   - **Ctrl+click** or **double‑click** the ribbon = add a **bend point**; drag points
+     to shape the note's straight‑line "chord". **right‑click** a point = remove it.
+   - hold **Alt** while dragging = fine / no snap; **Shift**+drag = Select for that drag
+
+   **The shape editor** — select one note and controls appear around it:
+   - a **STR / SIN / TRI** wheel below the note sets its shape. STR = a plain line
+     between the bend points; SIN / TRI make a wave ride on top of it.
+   - for a wave: a **cycles** slider below the note (how many cycles fit), a
+     **squeeze** slider above it (bunch the cycles toward one end), and two vertical
+     **amplitude** sliders just outside the start and end points — set them apart to
+     grow the wobble from start to finish.
 
    **Select** (s):
-   - **drag a box** = marquee‑select notes; **Shift**+drag = add to the selection
-   - **drag any selected note** = move the whole selection (grid‑snapped)
-   - **drag any selected note's right edge** = resize every selected note at once
-   - **Delete** = remove selected; **Esc** = clear; **right‑click** empty = clear
-
-   A note with points on different keys is drawn (and heard) sweeping between them,
-   overlapping whatever notes lie on the rows in between.
+   - **drag a box** = marquee‑select; **Shift**+drag = add; **drag a selected note** =
+     move the group; **drag a selected right edge** = resize the group;
+     **Delete** / **Esc**.
 
    **Zoom**: `-` / `+` / `1:1` buttons, or **Ctrl+scroll** (horizontal, around the
    cursor) and **Ctrl+Shift+scroll** (vertical).
