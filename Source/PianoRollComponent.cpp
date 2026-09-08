@@ -254,9 +254,47 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 
     const bool rightClick = e.mods.isRightButtonDown();
     const bool fine = e.mods.isShiftDown();
+    const bool addMod = e.mods.isCommandDown() && ! rightClick;   // Ctrl on Windows
 
     std::vector<MpeNote> snap;
     processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
+
+    // 0) Ctrl+left-click on a note ribbon -> drop a new bend point and start dragging it.
+    if (addMod)
+    {
+        const float range = (float) processor.getPitchBendRangeSemitones();
+
+        auto tryAdd = [&](const MpeNote& n) -> bool
+        {
+            if (! ribbonHit(n, pos))
+                return false;
+
+            const double b = juce::jlimit(0.0, n.lengthBeats,
+                                          snapBeat(beatForX(pos.x) - n.startBeat, fine));
+            float semis = pitchForY(pos.y) - (float) n.pitch;
+            if (! fine)
+                semis = std::round(semis);
+            semis = juce::jlimit(-range, range, semis);
+
+            int newIndex = -1;
+            processor.modifyNotes([&](std::vector<MpeNote>& notes)
+            {
+                for (auto& m : notes)
+                    if (m.id == n.id) { newIndex = m.bend.addPoint(b, semis); break; }
+            });
+
+            selectedId = n.id;
+            dragMode = DragMode::movePoint;
+            dragNoteId = n.id;
+            dragPointIndex = newIndex;
+            repaint();
+            return true;
+        };
+
+        for (auto& n : snap) if (n.id == selectedId && tryAdd(n)) return;
+        for (auto it = snap.rbegin(); it != snap.rend(); ++it) if (it->id != selectedId && tryAdd(*it)) return;
+        return;   // Ctrl+click off any ribbon: do nothing
+    }
 
     // 1) bend point under the mouse? (selected note's points win ties)
     auto tryPoint = [&](const MpeNote& n) -> bool
@@ -462,6 +500,29 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent& e)
         return;
     }
 
+    // double-click an existing bend point -> remove it (index 0 is the fixed anchor)
+    auto tryRemovePoint = [&](const MpeNote& n) -> bool
+    {
+        const int idx = pointIndexAt(n, pos);
+        if (idx < 0)
+            return false;
+
+        if (idx > 0)
+            processor.modifyNotes([&](std::vector<MpeNote>& notes)
+            {
+                for (auto& m : notes)
+                    if (m.id == n.id) { m.bend.removePoint(idx); break; }
+            });
+        dragMode = DragMode::none;   // cancel the drag the preceding mouseDown started
+        dragPointIndex = -1;
+        repaint();
+        return true;
+    };
+
+    for (auto& n : snap) if (n.id == selectedId && tryRemovePoint(n)) return;
+    for (auto& n : snap) if (n.id != selectedId && tryRemovePoint(n)) return;
+
+    // double-click the ribbon (not on a point) -> add a bend point there
     for (auto& n : snap)
     {
         if (! ribbonHit(n, pos))
