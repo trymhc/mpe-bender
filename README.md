@@ -74,6 +74,8 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
    - **click** empty grid = new note; **drag body** = move; **drag right edge** = length
    - **double‑click a note** = add a bend point on it
    - **drag a point** = bend in time + pitch (hold **Shift** for fine / no snap)
+   - **drag the diamond** on the middle of a segment = curve it (tension); the
+     diamond turns yellow when curved. **Right‑click / double‑click** it = straighten
    - **right‑click** a point = remove it; **right‑click** the note body = delete the note
    A note with points on different keys is drawn (and heard) sweeping between them,
    overlapping whatever notes lie on the rows in between.
