@@ -4,6 +4,7 @@
 #include "PluginProcessor.h"
 #include "PianoRollComponent.h"
 #include "HostedPluginWindow.h"
+#include "UiTheme.h"
 #include <memory>
 
 class MpePianoRollAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -24,6 +25,7 @@ private:
     void refreshHostedUi();
 
     MpePianoRollAudioProcessor& processor;
+    FlatLookAndFeel flatLnf;
 
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;

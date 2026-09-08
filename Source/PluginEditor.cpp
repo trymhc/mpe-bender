@@ -3,6 +3,8 @@
 MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollAudioProcessor& p)
     : AudioProcessorEditor(&p), processor(p), pianoRoll(p)
 {
+    setLookAndFeel(&flatLnf);
+
     setResizable(true, true);
     setSize(960, 640);
     setResizeLimits(600, 360, 2400, 1600);
@@ -43,7 +45,10 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
         s.setRange(min, max, step);
         s.setValue(value, juce::dontSendNotification);
         s.setSliderStyle(juce::Slider::LinearHorizontal);
-        s.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+        s.setTextBoxStyle(juce::Slider::TextBoxRight, false, 34, 20);
+        s.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+        s.setColour(juce::Slider::textBoxTextColourId, juce::Colours::white.withAlpha(0.9f));
         addAndMakeVisible(s);
         label.setJustificationType(juce::Justification::centredRight);
         label.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
@@ -112,6 +117,7 @@ MpePianoRollAudioProcessorEditor::~MpePianoRollAudioProcessorEditor()
 {
     stopTimer();
     hostedWindow.reset();
+    setLookAndFeel(nullptr);
 }
 
 void MpePianoRollAudioProcessorEditor::chooseHostedPlugin()
@@ -183,12 +189,9 @@ void MpePianoRollAudioProcessorEditor::refreshHostedUi()
     openHostedButton.setEnabled(loaded);
     openHostedButton.setButtonText(hostedWindow != nullptr ? "Close synth UI" : "Open synth UI");
 
-    if (loaded)
-        hostedStatusLabel.setText("Synth: " + processor.getHostedPlugin().getDisplayName(),
-                                  juce::dontSendNotification);
-    else
-        hostedStatusLabel.setText("Synth: none loaded - click \"Load Serum 2...\"",
-                                  juce::dontSendNotification);
+    hostedStatusLabel.setText(loaded ? "Synth: " + processor.getHostedPlugin().getDisplayName()
+                                     : "Synth: none",
+                              juce::dontSendNotification);
 
     forwardMidiButton.setToggleState(processor.getForwardHostMidi(), juce::dontSendNotification);
 }
