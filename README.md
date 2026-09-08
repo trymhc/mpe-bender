@@ -86,6 +86,7 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
    **Select** (s):
    - **drag a box** = marquee‑select notes; **Shift**+drag = add to the selection
    - **drag any selected note** = move the whole selection (grid‑snapped)
+   - **drag any selected note's right edge** = resize every selected note at once
    - **Delete** = remove selected; **Esc** = clear; **right‑click** empty = clear
 
    A note with points on different keys is drawn (and heard) sweeping between them,
