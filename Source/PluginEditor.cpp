@@ -9,6 +9,16 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     setSize(960, 640);
     setResizeLimits(720, 360, 2400, 1600);
 
+    for (auto* b : { &rollTabButton, &settingsTabButton })
+    {
+        b->setClickingTogglesState(true);
+        b->setRadioGroupId(2001);
+        addAndMakeVisible(*b);
+    }
+    rollTabButton.setToggleState(true, juce::dontSendNotification);
+    rollTabButton.onClick     = [this] { showTab(Tab::roll); };
+    settingsTabButton.onClick  = [this] { showTab(Tab::settings); };
+
     rollViewport.setViewedComponent(&pianoRoll, false);
     rollViewport.setScrollBarsShown(true, true);
     addAndMakeVisible(rollViewport);
@@ -45,6 +55,15 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
         processor.setPitchBendRangeSemitones((int) pbRangeSlider.getValue());
         pianoRoll.repaint();
     };
+    pbRangeLabel.setJustificationType(juce::Justification::centredLeft);
+
+    pbRangeHelp.setJustificationType(juce::Justification::topLeft);
+    pbRangeHelp.setFont(12.0f);
+    pbRangeHelp.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
+    pbRangeHelp.setText("Must match the pitch-bend range set in the hosted synth. In Serum 2, "
+                        "turn MPE on and set the same value there. Default 48.",
+                        juce::dontSendNotification);
+    addAndMakeVisible(pbRangeHelp);
 
     setupSlider(channelsSlider, channelsLabel, 1.0, 14.0, processor.getNumMemberChannels(), 1.0);
     channelsSlider.onValueChange = [this]
@@ -76,6 +95,7 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.85f));
     addAndMakeVisible(statusLabel);
 
+    showTab(Tab::roll);
     refreshHostedUi();
     startTimerHz(10);
 }
@@ -199,12 +219,47 @@ void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
     g.fillAll(Theme::panel);
 }
 
+void MpePianoRollAudioProcessorEditor::showTab(Tab t)
+{
+    currentTab = t;
+    const bool roll = t == Tab::roll;
+
+    juce::Component* rollBits[] = { &rollViewport, &keyboardSidebar, &zoomResetButton,
+                                   &loopLabel, &loopLengthSlider, &channelsLabel, &channelsSlider,
+                                   &loadHostedButton, &openHostedButton, &forwardMidiButton,
+                                   &hostedStatusLabel, &statusLabel };
+    for (auto* c : rollBits)
+        c->setVisible(roll);
+
+    juce::Component* settingsBits[] = { &pbRangeLabel, &pbRangeSlider, &pbRangeHelp };
+    for (auto* c : settingsBits)
+        c->setVisible(! roll);
+
+    (roll ? rollTabButton : settingsTabButton).setToggleState(true, juce::dontSendNotification);
+    resized();
+}
+
 void MpePianoRollAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds();
 
-    auto toolbar = area.removeFromTop(30).reduced(6, 3);
+    auto tabBar = area.removeFromTop(24).reduced(6, 3);
+    rollTabButton.setBounds(tabBar.removeFromLeft(56));
+    tabBar.removeFromLeft(3);
+    settingsTabButton.setBounds(tabBar.removeFromLeft(66));
 
+    if (currentTab == Tab::settings)
+    {
+        auto s = area.reduced(18, 14);
+        pbRangeLabel.setBounds(s.removeFromTop(20));
+        s.removeFromTop(4);
+        pbRangeSlider.setBounds(s.removeFromTop(24).withWidth(juce::jmin(360, s.getWidth())));
+        s.removeFromTop(8);
+        pbRangeHelp.setBounds(s.removeFromTop(40).withWidth(juce::jmin(420, s.getWidth())));
+        return;
+    }
+
+    auto toolbar = area.removeFromTop(30).reduced(6, 3);
     zoomResetButton.setBounds(toolbar.removeFromRight(38));
     toolbar.removeFromRight(14);
 
@@ -212,17 +267,15 @@ void MpePianoRollAudioProcessorEditor::resized()
     {
         label.setBounds(toolbar.removeFromLeft(labelWidth));
         slider.setBounds(toolbar.removeFromLeft(sliderWidth));
-        toolbar.removeFromLeft(14);
+        toolbar.removeFromLeft(16);
     };
-
-    placeControl(loopLabel, loopLengthSlider, 72, 116);
-    placeControl(pbRangeLabel, pbRangeSlider, 82, 116);
-    placeControl(channelsLabel, channelsSlider, 88, 104);
+    placeControl(loopLabel, loopLengthSlider, 74, 130);
+    placeControl(channelsLabel, channelsSlider, 92, 118);
 
     auto synthBar = area.removeFromTop(28).reduced(6, 2);
-    loadHostedButton.setBounds(synthBar.removeFromLeft(120));
+    loadHostedButton.setBounds(synthBar.removeFromLeft(110));
     synthBar.removeFromLeft(6);
-    openHostedButton.setBounds(synthBar.removeFromLeft(110));
+    openHostedButton.setBounds(synthBar.removeFromLeft(100));
     synthBar.removeFromLeft(6);
     forwardMidiButton.setBounds(synthBar.removeFromLeft(110));
     synthBar.removeFromLeft(10);
@@ -231,9 +284,8 @@ void MpePianoRollAudioProcessorEditor::resized()
     statusLabel.setBounds(area.removeFromTop(18).reduced(6, 1));
 
     rollViewport.setBounds(area);
-    pianoRoll.updateContentSize();   // re-clamp zoom to the new viewport width
+    pianoRoll.updateContentSize();
 
-    // frozen keyboard column over the viewport's left edge (above the h-scrollbar)
     const int sbThick = rollViewport.getScrollBarThickness();
     keyboardSidebar.setBounds(area.getX(), area.getY(),
                               PianoRollComponent::keyboardWidth, area.getHeight() - sbThick);

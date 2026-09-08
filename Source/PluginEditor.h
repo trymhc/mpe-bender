@@ -25,8 +25,15 @@ private:
     void toggleHostedWindow();
     void refreshHostedUi();
 
+    enum class Tab { roll, settings };
+    void showTab(Tab t);
+
     MpePianoRollAudioProcessor& processor;
     FlatLookAndFeel flatLnf;
+    Tab currentTab = Tab::roll;
+
+    juce::TextButton rollTabButton { "Roll" };
+    juce::TextButton settingsTabButton { "Settings" };
 
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;
@@ -36,10 +43,13 @@ private:
 
     juce::Label loopLabel { {}, "Loop (bars)" };
     juce::Slider loopLengthSlider;
-    juce::Label pbRangeLabel { {}, "PB Range (st)" };
-    juce::Slider pbRangeSlider;
     juce::Label channelsLabel { {}, "MPE Channels" };
     juce::Slider channelsSlider;
+
+    // --- Settings tab ---
+    juce::Label pbRangeLabel { {}, "Pitch-bend range (semitones)" };
+    juce::Slider pbRangeSlider;
+    juce::Label pbRangeHelp;
 
     juce::TextButton loadHostedButton { "Load ..." };
     juce::TextButton openHostedButton { "Open synth" };

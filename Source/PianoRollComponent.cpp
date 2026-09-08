@@ -191,10 +191,14 @@ PianoRollComponent::ShapeUI PianoRollComponent::shapeUIFor(const MpeNote& note) 
 
     const float midX = 0.5f * (s.x0 + s.x1);
 
-    // keep controls clear of the drawn curve: use the note's full pitch extent
-    const auto ext = pitchExtent(note);
-    const float drawnBot = s.wave ? yForPitch(ext.getStart()) : juce::jmax(s.y0, s.y1);
-    const float drawnTop = s.wave ? yForPitch(ext.getEnd())   : juce::jmin(s.y0, s.y1);
+    // Place the controls off the wave's *envelope* - chord extent +/- the larger
+    // amplitude - not the live sampled curve, so dragging cycles/skew (which only
+    // change the wave inside a fixed envelope) doesn't make the sliders jump.
+    float chordLo = 1.0e9f, chordHi = -1.0e9f;
+    for (auto& p : pts) { chordLo = juce::jmin(chordLo, p.value); chordHi = juce::jmax(chordHi, p.value); }
+    const float maxAmp = juce::jmax(std::abs(note.shapeAmpStart), std::abs(note.shapeAmpEnd)) + 0.5f;
+    const float drawnBot = s.wave ? yForPitch((float) note.pitch + chordLo - maxAmp) : juce::jmax(s.y0, s.y1);
+    const float drawnTop = s.wave ? yForPitch((float) note.pitch + chordHi + maxAmp) : juce::jmin(s.y0, s.y1);
 
     s.wheel  = { midX, drawnBot + (s.wave ? 40.0f : 24.0f) };
     s.wheelR = 15.0f;
@@ -814,7 +818,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
                 if (dragMode == DragMode::shapeCycles)
                 {
                     float c = juce::jlimit(0.0f, 1.0f, (pos.x - s.x0) / span) * shapeCycMax;
-                    if (! fine) c = std::round(c * 4.0f) / 4.0f;
+                    if (! fine) c = std::round(c * 2.0f) / 2.0f;   // 0.5-cycle steps
                     n.shapeCycles = juce::jmax(0.0f, c);
                 }
                 else if (dragMode == DragMode::shapeSqueeze)
