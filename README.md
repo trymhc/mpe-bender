@@ -33,16 +33,34 @@ Output: `build/MpePianoRoll_artefacts/Release/VST3/MPE Bender.vst3`
 
 ## Install
 
-FL Studio only reliably scans the system folder `C:\Program Files\Common Files\VST3`
-(custom search paths were not picked up here). Writing there needs admin once:
+FL Studio only reliably scans `C:\Program Files\Common Files\VST3`, and writing
+there needs admin. Two options:
+
+**Recommended — link once, then every build is live automatically:**
 
 ```powershell
-# elevated PowerShell (Win+X -> Terminal (Admin))
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+# elevated PowerShell (Win+X -> Terminal (Admin)), ONCE
+powershell -ExecutionPolicy Bypass -File .\link.ps1
 ```
 
-Then in FL: **Options → Manage plugins → Find installed plugins**, search `bender`.
-It shows up as a **Synth**. Re-run `install.ps1` after each rebuild.
+`link.ps1` points `C:\Program Files\Common Files\VST3\MPE Bender.vst3` at the build
+output via a junction. After that, any rebuild is instantly the plugin FL loads —
+no admin, no copying. Just reload the plugin instance in FL to pick up new code.
+
+**Auto-rebuild on save** (normal shell, optional):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\watch.ps1
+```
+
+Watches `Source\` + `CMakeLists.txt` and rebuilds on every save. Unload MPE Bender
+in FL while it rebuilds (Windows locks the loaded `.vst3`), then re-add it.
+
+**One-shot copy** (`install.ps1`, elevated) is the fallback if you don't want the
+junction.
+
+Then in FL: **Options → Manage plugins → Find installed plugins**, search `bender`
+(it's a **Synth**).
 
 ## Use it (FL Studio)
 
