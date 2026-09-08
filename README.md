@@ -73,7 +73,9 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
 4. Two tools, toggled in the toolbar or with **b** / **s** (like FL's piano roll):
 
    **Draw** (b):
-   - **click** empty grid = new note; **drag body** = move; **drag right edge** = length
+   - **click** empty grid = new note; **drag body** = move
+   - **drag the right edge** = the note's end bend point: horizontal changes length,
+     vertical bends the tail (one 2D handle)
    - **double‑click** the ribbon = add a **curve diamond** (any number between two
      bend points); the segment bows through it. **Ctrl+click** = add a **bend point**.
    - **drag** any point or diamond = shape the curve (time + pitch)
