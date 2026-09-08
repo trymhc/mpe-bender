@@ -162,7 +162,10 @@ const MpeNote* PianoRollComponent::findNote(const std::vector<MpeNote>& snap, co
 namespace
 {
     constexpr float shapeAmpMax = 12.0f;   // +/- one octave
-    constexpr float shapeCycMax = 16.0f;
+
+    // cycle-count range for a note whose bend points are `spanBeats` apart:
+    // 1 cycle over the whole span up to a cycle every 1/16 note.
+    float cycMaxFor(double spanBeats) { return (float) juce::jmax(2.0, spanBeats * 4.0); }
 
     float squeezeToNorm(float skew)   // skew 0.25..4  ->  0..1
     {
@@ -208,7 +211,9 @@ PianoRollComponent::ShapeUI PianoRollComponent::shapeUIFor(const MpeNote& note) 
         s.cyclesTrack  = { s.x0, drawnBot + 8.0f,  s.x1 - s.x0, 6.0f };
         s.squeezeTrack = { s.x0, drawnTop - 16.0f, s.x1 - s.x0, 6.0f };
 
-        const float cyN = juce::jlimit(0.0f, 1.0f, note.shapeCycles / shapeCycMax);
+        const double spanB = note.bend.lastBeat() - note.bend.firstBeat();
+        const float cycMax = cycMaxFor(spanB);
+        const float cyN = juce::jlimit(0.0f, 1.0f, (note.shapeCycleCount() - 1.0f) / juce::jmax(1.0f, cycMax - 1.0f));
         s.cyclesH  = { s.x0 + cyN * (s.x1 - s.x0), s.cyclesTrack.getCentreY() };
         s.squeezeH = { s.x0 + squeezeToNorm(note.shapeSkew) * (s.x1 - s.x0), s.squeezeTrack.getCentreY() };
 
@@ -368,15 +373,19 @@ void PianoRollComponent::paint(juce::Graphics& g)
         constexpr auto joint = juce::PathStrokeType::curved;
         constexpr auto cap   = juce::PathStrokeType::butt;
 
+        // ribbon thickness follows the zoom (row height), so it never swamps the
+        // grid when zoomed right out
+        const float core = juce::jlimit(2.0f, 11.0f, rowHeight * 0.52f) + (selected ? 1.5f : 0.0f);
+
         if (n.isSounding)
         {
             g.setColour(Theme::noteSel.withAlpha(0.22f));
-            g.strokePath(p, juce::PathStrokeType(selected ? 18.0f : 16.0f, joint, cap));
+            g.strokePath(p, juce::PathStrokeType(core + 8.0f, joint, cap));
         }
         g.setColour(juce::Colours::black.withAlpha(0.5f));
-        g.strokePath(p, juce::PathStrokeType(selected ? 12.0f : 10.0f, joint, cap));
+        g.strokePath(p, juce::PathStrokeType(core + 2.5f, joint, cap));
         g.setColour(base.withAlpha(selected || n.isSounding ? 1.0f : 0.85f));
-        g.strokePath(p, juce::PathStrokeType(selected ? 9.0f : 7.0f, joint, cap));
+        g.strokePath(p, juce::PathStrokeType(core, joint, cap));
     };
 
     for (auto& n : snapshot) if (! isSelected(n.id)) drawNote(n, false);
@@ -482,7 +491,11 @@ void PianoRollComponent::paint(juce::Graphics& g)
                     knob(s.ampEndKnob,   n->shapeAmpEnd);
 
                     juce::String rd;
-                    if (dragMode == DragMode::shapeCycles)         rd = juce::String(n->shapeCycles, 2) + " cyc";
+                    if (dragMode == DragMode::shapeCycles)
+                    {
+                        const int sixteenths = juce::jmax(1, juce::roundToInt(n->shapeCyclePeriod / 0.25f));
+                        rd = juce::String(sixteenths) + "/16  " + juce::String(n->shapeCycleCount(), 1) + " cyc";
+                    }
                     else if (dragMode == DragMode::shapeSqueeze)   rd = "skew " + juce::String(n->shapeSkew, 2);
                     else if (dragMode == DragMode::shapeAmpStart)  rd = "amp0 " + juce::String(n->shapeAmpStart, 1);
                     else if (dragMode == DragMode::shapeAmpEnd)    rd = "amp1 " + juce::String(n->shapeAmpEnd, 1);
@@ -817,9 +830,13 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
 
                 if (dragMode == DragMode::shapeCycles)
                 {
-                    float c = juce::jlimit(0.0f, 1.0f, (pos.x - s.x0) / span) * shapeCycMax;
-                    if (! fine) c = std::round(c * 2.0f) / 2.0f;   // 0.5-cycle steps
-                    n.shapeCycles = juce::jmax(0.0f, c);
+                    const double spanB = n.bend.lastBeat() - n.bend.firstBeat();
+                    const float cycMax = cycMaxFor(spanB);
+                    const float cyc = 1.0f + juce::jlimit(0.0f, 1.0f, (pos.x - s.x0) / span) * (cycMax - 1.0f);
+                    double period = spanB / juce::jmax(1.0f, cyc);
+                    if (! fine)                          // lock the cycle period to the 1/16 grid
+                        period = std::round(period / 0.25) * 0.25;
+                    n.shapeCyclePeriod = (float) juce::jlimit(0.25, spanB, period);
                 }
                 else if (dragMode == DragMode::shapeSqueeze)
                 {

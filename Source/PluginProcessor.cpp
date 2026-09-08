@@ -14,7 +14,7 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     a.bend.addPoint(4.0, 7.0f);          // rises a fifth over 4 beats (the chord)
     a.lengthBeats = a.bend.conformEnd(4.0);
     a.shape = BendShape::sine;
-    a.shapeCycles = 5.0f;
+    a.shapeCyclePeriod = 1.0f;   // one cycle per beat -> 4 cycles over the 4-beat note
     a.shapeSkew = 1.6f;
     a.shapeAmpStart = 0.3f;
     a.shapeAmpEnd = 2.5f;
@@ -309,7 +309,7 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
             nt.setProperty("velocity", n.velocity, nullptr);
             nt.setProperty("releaseVelocity", n.releaseVelocity, nullptr);
             nt.setProperty("shape", (int) n.shape, nullptr);
-            nt.setProperty("shapeCycles", n.shapeCycles, nullptr);
+            nt.setProperty("shapeCyclePeriod", n.shapeCyclePeriod, nullptr);
             nt.setProperty("shapeSkew", n.shapeSkew, nullptr);
             nt.setProperty("shapeAmpStart", n.shapeAmpStart, nullptr);
             nt.setProperty("shapeAmpEnd", n.shapeAmpEnd, nullptr);
@@ -362,7 +362,12 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
         n.velocity = (float) (double) nt.getProperty("velocity", 0.8);
         n.releaseVelocity = (float) (double) nt.getProperty("releaseVelocity", 0.5);
         n.shape = (BendShape) (int) nt.getProperty("shape", 0);
-        n.shapeCycles   = (float) (double) nt.getProperty("shapeCycles", 3.0);
+        n.shapeCyclePeriod = (float) (double) nt.getProperty("shapeCyclePeriod", 1.0);
+        if (nt.hasProperty("shapeCycles") && ! nt.hasProperty("shapeCyclePeriod"))   // pre-0.8 count -> period
+        {
+            const double c = juce::jmax(1.0, (double) nt.getProperty("shapeCycles", 1.0));
+            n.shapeCyclePeriod = (float) juce::jmax(0.25, n.lengthBeats / c);
+        }
         n.shapeSkew     = (float) (double) nt.getProperty("shapeSkew", 1.0);
         n.shapeAmpStart = (float) (double) nt.getProperty("shapeAmpStart", 0.0);
         n.shapeAmpEnd   = (float) (double) nt.getProperty("shapeAmpEnd", 2.0);
