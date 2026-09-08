@@ -70,14 +70,22 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
 3. Click **Open synth UI** to show Serum's own window. In Serum 2, **turn on MPE**
    and set its pitch‑bend range to match the **PB Range** slider here (default 48
    semitones).
-4. Draw notes in the piano roll:
+4. Two tools, toggled in the toolbar or with **b** / **s** (like FL's piano roll):
+
+   **Draw** (b):
    - **click** empty grid = new note; **drag body** = move; **drag right edge** = length
-   - **Ctrl+click the ribbon** (or double‑click it) = add a bend point — as many as you want
+   - **double‑click** or **Ctrl+click** the ribbon = add a bend/curve point (any number)
    - **drag a point** = bend in time + pitch (hold **Shift** for fine / no snap)
-   - **double‑click a point** (or right‑click it) = remove it
-   - **drag the diamond** on the middle of a segment = curve it (tension); the
-     diamond turns yellow when curved. **Right‑click / double‑click** it = straighten
-   - **right‑click** the note body = delete the note
+   - **drag the diamond** in the middle of a segment = curve it (tension); it turns
+     yellow when curved
+   - **right‑click** a point = remove it; **right‑click** a diamond = straighten;
+     **right‑click** the note body = delete the note
+
+   **Select** (s):
+   - **drag a box** = marquee‑select notes; **Shift**+drag = add to the selection
+   - **drag any selected note** = move the whole selection (grid‑snapped)
+   - **Delete** = remove selected; **Esc** = clear; **right‑click** empty = clear
+
    A note with points on different keys is drawn (and heard) sweeping between them,
    overlapping whatever notes lie on the rows in between.
 5. Press play in FL. The plugin loops its own pattern (**Loop (beats)** slider),
