@@ -30,6 +30,9 @@ private:
 
     juce::TextButton drawButton { "Draw" };
     juce::TextButton selectButton { "Select" };
+    juce::TextButton zoomOutButton { "-" };
+    juce::TextButton zoomInButton { "+" };
+    juce::TextButton zoomResetButton { "1:1" };
 
     juce::Label loopLabel { {}, "Loop (bars)" };
     juce::Slider loopLengthSlider;

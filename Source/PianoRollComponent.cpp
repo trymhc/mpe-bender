@@ -4,9 +4,70 @@ PianoRollComponent::PianoRollComponent(MpePianoRollAudioProcessor& processorToUs
     : processor(processorToUse)
 {
     setWantsKeyboardFocus(true);
-    setSize(keyboardWidth + (int) (processor.getLoopLengthBeats() * pixelsPerBeat),
-             (highestPitch - lowestPitch + 1) * rowHeight);
+    updateContentSize();
     startTimerHz(30);
+}
+
+void PianoRollComponent::updateContentSize()
+{
+    const int w = keyboardWidth + juce::roundToInt(processor.getLoopLengthBeats() * pixelsPerBeat);
+    const int h = juce::roundToInt((float) (highestPitch - lowestPitch + 1) * rowHeight);
+    setSize(juce::jmax(1, w), juce::jmax(1, h));
+}
+
+void PianoRollComponent::zoomHorizontal(float factor, float anchorX)
+{
+    auto* vp = findParentComponentOfClass<juce::Viewport>();
+    const double beatAtAnchor = beatForX(anchorX);
+    const float screenX = vp != nullptr ? anchorX - (float) vp->getViewPositionX() : anchorX;
+
+    pixelsPerBeat = juce::jlimit(14.0f, 400.0f, pixelsPerBeat * factor);
+    updateContentSize();
+
+    if (vp != nullptr)
+        vp->setViewPosition(juce::roundToInt(xForBeat(beatAtAnchor) - screenX), vp->getViewPositionY());
+    repaint();
+}
+
+void PianoRollComponent::zoomVertical(float factor, float anchorY)
+{
+    auto* vp = findParentComponentOfClass<juce::Viewport>();
+    const float pitchAtAnchor = pitchForY(anchorY);
+    const float screenY = vp != nullptr ? anchorY - (float) vp->getViewPositionY() : anchorY;
+
+    rowHeight = juce::jlimit(6.0f, 40.0f, rowHeight * factor);
+    updateContentSize();
+
+    if (vp != nullptr)
+        vp->setViewPosition(vp->getViewPositionX(), juce::roundToInt(yForPitch(pitchAtAnchor) - screenY));
+    repaint();
+}
+
+void PianoRollComponent::resetZoom()
+{
+    pixelsPerBeat = defaultPixelsPerBeat;
+    rowHeight = defaultRowHeight;
+    updateContentSize();
+    repaint();
+}
+
+void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    if (e.mods.isCommandDown())
+    {
+        float dy = wheel.deltaY;
+        if (wheel.isReversed) dy = -dy;
+        const float step = dy >= 0.0f ? 1.15f : (1.0f / 1.15f);
+
+        if (e.mods.isShiftDown())
+            zoomVertical(step, e.position.y);
+        else
+            zoomHorizontal(step, e.position.x);
+        return;
+    }
+
+    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
+        vp->mouseWheelMove(e.getEventRelativeTo(vp), wheel);
 }
 
 bool PianoRollComponent::isBlackKey(int pitch) const
@@ -188,21 +249,21 @@ void PianoRollComponent::paint(juce::Graphics& g)
             g.drawHorizontalLine((int) yTop, (float) keyboardWidth, (float) getWidth());
             g.setColour(juce::Colours::white.withAlpha(0.5f));
             g.setFont(9.0f);
-            g.drawText("C" + juce::String(pitch / 12 - 1), 2, (int) yTop, keyboardWidth - 4, rowHeight,
+            g.drawText("C" + juce::String(pitch / 12 - 1), 2, (int) yTop, keyboardWidth - 4, (int) rowHeight,
                        juce::Justification::centredLeft);
         }
     }
 
-    // vertical grid: 1/4-beat, beat, bar
+    // vertical grid: 1/4-beat, beat, bar (skip finer lines when zoomed out)
     auto verticals = [&](double step, juce::Colour c)
     {
         g.setColour(c);
         for (double b = 0.0; b <= loopLen + 1.0e-6; b += step)
             g.drawVerticalLine((int) xForBeat(b), 0.0f, h);
     };
-    verticals(0.25, juce::Colours::white.withAlpha(0.035f));
-    verticals(1.0,  juce::Colours::white.withAlpha(0.11f));
-    verticals(4.0,  juce::Colours::white.withAlpha(0.20f));
+    if (pixelsPerBeat * 0.25f >= 5.0f) verticals(0.25, juce::Colours::white.withAlpha(0.035f));
+    if (pixelsPerBeat        >= 5.0f) verticals(1.0,  juce::Colours::white.withAlpha(0.11f));
+    verticals(4.0, juce::Colours::white.withAlpha(0.20f));
 
     g.setColour(juce::Colours::orange.withAlpha(0.5f));
     g.drawVerticalLine((int) xForBeat(loopLen), 0.0f, h);

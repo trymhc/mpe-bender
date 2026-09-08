@@ -31,10 +31,16 @@ public:
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     bool keyPressed(const juce::KeyPress&) override;
 
-    static constexpr float pixelsPerBeat = 80.0f;
     static constexpr int keyboardWidth = 50;
+
+    // Zoom. `anchor` is a point in this component's coords kept stationary on screen.
+    void zoomHorizontal(float factor, float anchorX);
+    void zoomVertical(float factor, float anchorY);
+    void resetZoom();
+    void updateContentSize();   // call after the loop length changes
 
 private:
     void timerCallback() override { repaint(); }
@@ -110,6 +116,11 @@ private:
 
     static constexpr int lowestPitch = 24;   // C1
     static constexpr int highestPitch = 96;  // C7
-    static constexpr int rowHeight = 14;
     static constexpr float pointRadius = 4.0f;
+
+    static constexpr float defaultPixelsPerBeat = 80.0f;
+    static constexpr float defaultRowHeight = 14.0f;
+
+    float pixelsPerBeat = defaultPixelsPerBeat;
+    float rowHeight = defaultRowHeight;
 };

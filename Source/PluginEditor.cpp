@@ -27,6 +27,17 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
         b.setToggleState(true, juce::dontSendNotification);
     };
 
+    auto zoomBy = [this](float factor)
+    {
+        const float cx = (float) rollViewport.getViewPositionX() + rollViewport.getViewWidth() * 0.5f;
+        pianoRoll.zoomHorizontal(factor, cx);
+    };
+    for (auto* b : { &zoomOutButton, &zoomInButton, &zoomResetButton })
+        addAndMakeVisible(*b);
+    zoomOutButton.onClick   = [zoomBy] { zoomBy(1.0f / 1.3f); };
+    zoomInButton.onClick    = [zoomBy] { zoomBy(1.3f); };
+    zoomResetButton.onClick = [this] { pianoRoll.resetZoom(); };
+
     auto setupSlider = [this](juce::Slider& s, juce::Label& label, double min, double max, double value, double step)
     {
         s.setRange(min, max, step);
@@ -43,9 +54,7 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     loopLengthSlider.onValueChange = [this]
     {
         processor.setLoopLengthBeats(loopLengthSlider.getValue() * 4.0);   // slider is in bars (4/4)
-        pianoRoll.setSize(PianoRollComponent::keyboardWidth
-                               + (int) (processor.getLoopLengthBeats() * PianoRollComponent::pixelsPerBeat),
-                           pianoRoll.getHeight());
+        pianoRoll.updateContentSize();
     };
 
     setupSlider(pbRangeSlider, pbRangeLabel, 1.0, 96.0, processor.getPitchBendRangeSemitones(), 1.0);
@@ -89,8 +98,9 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     helpLabel.setFont(11.0f);
     helpLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.5f));
     helpLabel.setText("Draw (b): click=note, drag=move, edge=length, dbl-click ribbon=curve diamond, "
-                      "ctrl-click=bend point, drag point/diamond=shape, right-click=delete, "
-                      "Alt=fine, Shift+drag=select.   Select (s): box=select, Shift=add, Del=remove.",
+                      "ctrl-click=bend point, right-click=delete, Alt=fine, Shift+drag=select.   "
+                      "Select (s): box=select, Shift=add, Del=remove.   "
+                      "Zoom: +/- buttons, Ctrl+wheel (Ctrl+Shift+wheel = vertical).",
                       juce::dontSendNotification);
     addAndMakeVisible(helpLabel);
 
@@ -230,6 +240,14 @@ void MpePianoRollAudioProcessorEditor::resized()
     selectButton.setBounds(toolbar.removeFromLeft(56));
     toolbar.removeFromLeft(14);
 
+    // zoom controls on the far right of the toolbar
+    zoomResetButton.setBounds(toolbar.removeFromRight(40));
+    toolbar.removeFromRight(3);
+    zoomInButton.setBounds(toolbar.removeFromRight(28));
+    toolbar.removeFromRight(3);
+    zoomOutButton.setBounds(toolbar.removeFromRight(28));
+    toolbar.removeFromRight(10);
+
     auto placeControl = [&toolbar](juce::Label& label, juce::Slider& slider, int labelWidth, int sliderWidth)
     {
         label.setBounds(toolbar.removeFromLeft(labelWidth));
@@ -237,9 +255,9 @@ void MpePianoRollAudioProcessorEditor::resized()
         toolbar.removeFromLeft(12);
     };
 
-    placeControl(loopLabel, loopLengthSlider, 78, 120);
-    placeControl(pbRangeLabel, pbRangeSlider, 82, 118);
-    placeControl(channelsLabel, channelsSlider, 88, 110);
+    placeControl(loopLabel, loopLengthSlider, 70, 104);
+    placeControl(pbRangeLabel, pbRangeSlider, 78, 104);
+    placeControl(channelsLabel, channelsSlider, 82, 96);
 
     auto synthBar = area.removeFromTop(28).reduced(6, 2);
     loadHostedButton.setBounds(synthBar.removeFromLeft(120));
