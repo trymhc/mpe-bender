@@ -36,23 +36,20 @@ public:
 
     static constexpr int keyboardWidth = 50;
 
-    // Zoom. `anchor` is a point in this component's coords kept stationary on screen.
-    void zoomHorizontal(float factor, float anchorX);
-    void zoomVertical(float factor, float anchorY);
-    void zoomHorizontalCentred(float factor);
-    void zoomVerticalCentred(float factor);
+    // Zoom both axes by `factor`, keeping (anchorX, anchorY) stationary on screen.
+    void zoomBoth(float factor, float anchorX, float anchorY);
     void resetZoom();
     void updateContentSize();   // call after the loop length changes
 
     bool hasSoleSelection() const { return selection.size() == 1; }
     // Add (delta>0) or remove (delta<0) one curve diamond per bend-point segment
-    // of the currently selected note.
+    // of every selected note.
     void adjustDiamondDensity(int delta);
 
 private:
     void timerCallback() override { repaint(); }
 
-    enum class DragMode { none, marquee, moveNotes, movePoint, resizeEnds };
+    enum class DragMode { none, marquee, moveNotes, movePoint, resizeEnds, scaleBoxH, scaleBoxV };
 
     float yForPitch(float pitch) const
     {
@@ -100,15 +97,38 @@ private:
     void beginMoveNotes(juce::Point<float> pos, const std::vector<MpeNote>& snapshot);
     void updateMarquee(juce::Point<float> pos, const std::vector<MpeNote>& snapshot, bool additive);
 
+    const MpeNote* findNote(const std::vector<MpeNote>& snap, const juce::Uuid& id) const;
+
+    // in-roll density popup ("- (N) +" under the selection)
+    struct DensityPopup { juce::Rectangle<float> minusR, plusR, box; juce::String text; bool valid = false; };
+    DensityPopup densityPopupFor(const std::vector<MpeNote>& snap) const;
+
+    // scale box between two selected bend points at different heights
+    struct ScaleBox
+    {
+        bool valid = false;
+        int loIdx = -1, hiIdx = -1;
+        juce::Rectangle<float> rect;
+        juce::Point<float> hHandle, vHandle;   // free corners
+    };
+    ScaleBox scaleBoxFor(const MpeNote& note) const;
+
     MpePianoRollAudioProcessor& processor;
     Tool tool = Tool::draw;
 
     std::vector<juce::Uuid> selection;
+    std::vector<int> selPoints;   // selected bend-point indices on the sole note (for the scale box)
 
     DragMode dragMode = DragMode::none;
     juce::Uuid dragNoteId;
     int dragPointIndex = -1;
     bool dragPointIsAnchor = true;
+
+    // scale-box drag state (captured at mouseDown)
+    double sbBeat0 = 0.0, sbBeat1 = 0.0;     // note-relative beats of the two anchors
+    float  sbVal0 = 0.0f, sbVal1 = 0.0f;
+    struct DiamondOrigin { int index; double beat; float value; };
+    std::vector<DiamondOrigin> sbOrigins;
 
     juce::Point<float> marqueeA, marqueeB;
     std::vector<juce::Uuid> preMarqueeSelection;

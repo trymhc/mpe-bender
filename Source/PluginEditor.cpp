@@ -7,28 +7,13 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
 
     setResizable(true, true);
     setSize(960, 640);
-    setResizeLimits(880, 360, 2400, 1600);
+    setResizeLimits(720, 360, 2400, 1600);
 
     rollViewport.setViewedComponent(&pianoRoll, false);
     rollViewport.setScrollBarsShown(true, true);
     addAndMakeVisible(rollViewport);
 
-    // curve-diamond density for the selected note
-    curveLabel.setJustificationType(juce::Justification::centredRight);
-    curveLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
-    addAndMakeVisible(curveLabel);
-    addAndMakeVisible(curveLessButton);
-    addAndMakeVisible(curveMoreButton);
-    curveLessButton.onClick = [this] { pianoRoll.adjustDiamondDensity(-1); };
-    curveMoreButton.onClick = [this] { pianoRoll.adjustDiamondDensity(+1); };
-
-    // zoom
-    for (auto* b : { &zoomHOutButton, &zoomHInButton, &zoomVOutButton, &zoomVInButton, &zoomResetButton })
-        addAndMakeVisible(*b);
-    zoomHOutButton.onClick  = [this] { pianoRoll.zoomHorizontalCentred(1.0f / 1.3f); };
-    zoomHInButton.onClick   = [this] { pianoRoll.zoomHorizontalCentred(1.3f); };
-    zoomVOutButton.onClick  = [this] { pianoRoll.zoomVerticalCentred(1.0f / 1.3f); };
-    zoomVInButton.onClick   = [this] { pianoRoll.zoomVerticalCentred(1.3f); };
+    addAndMakeVisible(zoomResetButton);
     zoomResetButton.onClick = [this] { pianoRoll.resetZoom(); };
 
     auto setupSlider = [this](juce::Slider& s, juce::Label& label, double min, double max, double value, double step)
@@ -205,10 +190,6 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
                              + "   |   transport: " + statusText,
                          juce::dontSendNotification);
 
-    const bool one = pianoRoll.hasSoleSelection();
-    curveLessButton.setEnabled(one);
-    curveMoreButton.setEnabled(one);
-
     refreshHostedUi();
 }
 
@@ -223,33 +204,19 @@ void MpePianoRollAudioProcessorEditor::resized()
 
     auto toolbar = area.removeFromTop(30).reduced(6, 3);
 
-    // left: curve-diamond density for the selected note
-    curveLabel.setBounds(toolbar.removeFromLeft(58));
-    curveLessButton.setBounds(toolbar.removeFromLeft(22));
-    toolbar.removeFromLeft(2);
-    curveMoreButton.setBounds(toolbar.removeFromLeft(22));
-    toolbar.removeFromLeft(16);
-
-    // right: zoom (H / V / reset)
     zoomResetButton.setBounds(toolbar.removeFromRight(38));
-    toolbar.removeFromRight(6);
-    zoomVInButton.setBounds(toolbar.removeFromRight(26));
-    zoomVOutButton.setBounds(toolbar.removeFromRight(26));
-    toolbar.removeFromRight(4);
-    zoomHInButton.setBounds(toolbar.removeFromRight(26));
-    zoomHOutButton.setBounds(toolbar.removeFromRight(26));
-    toolbar.removeFromRight(12);
+    toolbar.removeFromRight(14);
 
     auto placeControl = [&toolbar](juce::Label& label, juce::Slider& slider, int labelWidth, int sliderWidth)
     {
         label.setBounds(toolbar.removeFromLeft(labelWidth));
         slider.setBounds(toolbar.removeFromLeft(sliderWidth));
-        toolbar.removeFromLeft(12);
+        toolbar.removeFromLeft(14);
     };
 
-    placeControl(loopLabel, loopLengthSlider, 70, 100);
-    placeControl(pbRangeLabel, pbRangeSlider, 78, 100);
-    placeControl(channelsLabel, channelsSlider, 82, 92);
+    placeControl(loopLabel, loopLengthSlider, 72, 116);
+    placeControl(pbRangeLabel, pbRangeSlider, 82, 116);
+    placeControl(channelsLabel, channelsSlider, 88, 104);
 
     auto synthBar = area.removeFromTop(28).reduced(6, 2);
     loadHostedButton.setBounds(synthBar.removeFromLeft(120));

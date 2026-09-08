@@ -30,16 +30,6 @@ private:
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;
 
-    // curve-diamond density for the selected note
-    juce::Label curveLabel { {}, "Curve pts" };
-    juce::TextButton curveLessButton { "-" };
-    juce::TextButton curveMoreButton { "+" };
-
-    // zoom: separate horizontal / vertical, plus reset
-    juce::TextButton zoomHOutButton { "H-" };
-    juce::TextButton zoomHInButton  { "H+" };
-    juce::TextButton zoomVOutButton { "V-" };
-    juce::TextButton zoomVInButton  { "V+" };
     juce::TextButton zoomResetButton { "1:1" };
 
     juce::Label loopLabel { {}, "Loop (bars)" };

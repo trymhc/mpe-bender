@@ -29,48 +29,22 @@ void PianoRollComponent::updateContentSize()
     setSize(juce::jmax(1, w), juce::jmax(1, h));
 }
 
-void PianoRollComponent::zoomHorizontal(float factor, float anchorX)
+void PianoRollComponent::zoomBoth(float factor, float anchorX, float anchorY)
 {
     auto* vp = findParentComponentOfClass<juce::Viewport>();
-    const double beatAtAnchor = beatForX(anchorX);
-    const float screenX = vp != nullptr ? anchorX - (float) vp->getViewPositionX() : anchorX;
+    const double beatAtX  = beatForX(anchorX);
+    const float  pitchAtY = pitchForY(anchorY);
+    const float  sx = vp != nullptr ? anchorX - (float) vp->getViewPositionX() : anchorX;
+    const float  sy = vp != nullptr ? anchorY - (float) vp->getViewPositionY() : anchorY;
 
     pixelsPerBeat *= factor;
-    updateContentSize();   // clamps + resizes
+    rowHeight     *= factor;
+    updateContentSize();   // clamps both
 
     if (vp != nullptr)
-        vp->setViewPosition(juce::roundToInt(xForBeat(beatAtAnchor) - screenX), vp->getViewPositionY());
+        vp->setViewPosition(juce::roundToInt(xForBeat(beatAtX) - sx),
+                            juce::roundToInt(yForPitch(pitchAtY) - sy));
     repaint();
-}
-
-void PianoRollComponent::zoomVertical(float factor, float anchorY)
-{
-    auto* vp = findParentComponentOfClass<juce::Viewport>();
-    const float pitchAtAnchor = pitchForY(anchorY);
-    const float screenY = vp != nullptr ? anchorY - (float) vp->getViewPositionY() : anchorY;
-
-    rowHeight *= factor;
-    updateContentSize();
-
-    if (vp != nullptr)
-        vp->setViewPosition(vp->getViewPositionX(), juce::roundToInt(yForPitch(pitchAtAnchor) - screenY));
-    repaint();
-}
-
-void PianoRollComponent::zoomHorizontalCentred(float factor)
-{
-    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
-        zoomHorizontal(factor, (float) vp->getViewPositionX() + vp->getViewWidth() * 0.5f);
-    else
-        zoomHorizontal(factor, (float) getWidth() * 0.5f);
-}
-
-void PianoRollComponent::zoomVerticalCentred(float factor)
-{
-    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
-        zoomVertical(factor, (float) vp->getViewPositionY() + vp->getViewHeight() * 0.5f);
-    else
-        zoomVertical(factor, (float) getHeight() * 0.5f);
 }
 
 void PianoRollComponent::resetZoom()
@@ -83,8 +57,7 @@ void PianoRollComponent::resetZoom()
 
 void PianoRollComponent::adjustDiamondDensity(int delta)
 {
-    const auto id = soleSelection();
-    if (id == juce::Uuid::null() || delta == 0)
+    if (selection.empty() || delta == 0)
         return;
 
     const float range = (float) processor.getPitchBendRangeSemitones();
@@ -93,7 +66,7 @@ void PianoRollComponent::adjustDiamondDensity(int delta)
     {
         for (auto& n : notes)
         {
-            if (n.id != id)
+            if (! isSelected(n.id))
                 continue;
 
             auto& bend = n.bend;
@@ -140,25 +113,23 @@ void PianoRollComponent::adjustDiamondDensity(int delta)
                         }
                 }
             }
-            break;
         }
     });
 
+    selPoints.clear();
     repaint();
 }
 
 void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
-    if (e.mods.isCommandDown())
+    if (e.mods.isCommandDown())   // Ctrl (or a trackpad pinch) -> zoom both axes
     {
         float dy = wheel.deltaY;
         if (wheel.isReversed) dy = -dy;
-        const float step = dy >= 0.0f ? 1.15f : (1.0f / 1.15f);
-
-        if (e.mods.isShiftDown())
-            zoomVertical(step, e.position.y);
-        else
-            zoomHorizontal(step, e.position.x);
+        if (std::abs(dy) < 1.0e-4f)
+            return;
+        const float step = dy > 0.0f ? 1.12f : (1.0f / 1.12f);
+        zoomBoth(step, e.position.x, e.position.y);
         return;
     }
 
@@ -241,6 +212,83 @@ bool PianoRollComponent::nearRightEdge(const MpeNote& note, juce::Point<float> p
     return std::abs(pos.y - ey) <= rowHeight * 1.5f;
 }
 
+const MpeNote* PianoRollComponent::findNote(const std::vector<MpeNote>& snap, const juce::Uuid& id) const
+{
+    for (auto& n : snap)
+        if (n.id == id)
+            return &n;
+    return nullptr;
+}
+
+PianoRollComponent::DensityPopup PianoRollComponent::densityPopupFor(const std::vector<MpeNote>& snap) const
+{
+    DensityPopup p;
+    if (selection.empty())
+        return p;
+
+    float xLo = 1.0e9f, xHi = -1.0e9f, yBottom = -1.0e9f;
+    int diamonds = 0;
+    for (auto& n : snap)
+    {
+        if (! isSelected(n.id))
+            continue;
+        xLo = juce::jmin(xLo, xForBeat(n.startBeat));
+        xHi = juce::jmax(xHi, xForBeat(n.endBeat()));
+        auto ext = pitchExtent(n);
+        yBottom = juce::jmax(yBottom, yForPitch(ext.getStart()));   // bottom of the note on screen
+        for (auto& pt : n.bend.getPoints())
+            if (! pt.anchor)
+                ++diamonds;
+    }
+    if (xHi < xLo)
+        return p;
+
+    const float w = 78.0f, hgt = 18.0f;
+    const float cx = 0.5f * (xLo + xHi);
+    float top = yBottom + 10.0f;
+    if (top + hgt > (float) getHeight() - 2.0f)
+        top = juce::jmax(2.0f, (float) getHeight() - 2.0f - hgt);
+
+    p.box = { cx - w * 0.5f, top, w, hgt };
+    p.minusR = { p.box.getX(), top, 20.0f, hgt };
+    p.plusR  = { p.box.getRight() - 20.0f, top, 20.0f, hgt };
+    p.text = juce::String(diamonds);
+    p.valid = true;
+    return p;
+}
+
+PianoRollComponent::ScaleBox PianoRollComponent::scaleBoxFor(const MpeNote& note) const
+{
+    ScaleBox sb;
+    const auto& pts = note.bend.getPoints();
+
+    if (selPoints.size() != 2)
+        return sb;
+    int i0 = selPoints[0], i1 = selPoints[1];
+    if (i0 < 0 || i1 < 0 || i0 >= (int) pts.size() || i1 >= (int) pts.size())
+        return sb;
+    if (! pts[(size_t) i0].anchor || ! pts[(size_t) i1].anchor)
+        return sb;
+    if (pts[(size_t) i0].beat > pts[(size_t) i1].beat)
+        std::swap(i0, i1);
+    if (std::abs(pts[(size_t) i0].value - pts[(size_t) i1].value) < 0.5f)   // same note height
+        return sb;
+
+    const float xA = xForBeat(note.startBeat + pts[(size_t) i0].beat);
+    const float yA = yForPitch((float) note.pitch + pts[(size_t) i0].value);
+    const float xB = xForBeat(note.startBeat + pts[(size_t) i1].beat);
+    const float yB = yForPitch((float) note.pitch + pts[(size_t) i1].value);
+
+    sb.valid = true;
+    sb.loIdx = i0;
+    sb.hiIdx = i1;
+    sb.rect = juce::Rectangle<float>(juce::jmin(xA, xB), juce::jmin(yA, yB),
+                                     std::abs(xB - xA), std::abs(yB - yA));
+    sb.vHandle = { xA, yB };   // shares x with the earlier point, y with the later
+    sb.hHandle = { xB, yA };   // shares x with the later point, y with the earlier
+    return sb;
+}
+
 // ---------------------------------------------------------------------------
 //  Selection
 // ---------------------------------------------------------------------------
@@ -254,6 +302,7 @@ void PianoRollComponent::selectOnly(const juce::Uuid& id)
 {
     selection.clear();
     selection.push_back(id);
+    selPoints.clear();
 }
 
 void PianoRollComponent::toggleSelected(const juce::Uuid& id)
@@ -261,9 +310,10 @@ void PianoRollComponent::toggleSelected(const juce::Uuid& id)
     auto it = std::find(selection.begin(), selection.end(), id);
     if (it != selection.end()) selection.erase(it);
     else                       selection.push_back(id);
+    selPoints.clear();
 }
 
-void PianoRollComponent::clearSelection() { selection.clear(); }
+void PianoRollComponent::clearSelection() { selection.clear(); selPoints.clear(); }
 
 juce::Uuid PianoRollComponent::soleSelection() const
 {
@@ -280,6 +330,7 @@ void PianoRollComponent::deleteSelected()
             [&](const MpeNote& n) { return isSelected(n.id); }), notes.end());
     });
     selection.clear();
+    selPoints.clear();
     repaint();
 }
 
@@ -412,12 +463,20 @@ void PianoRollComponent::paint(juce::Graphics& g)
                 auto x = xForBeat(n.startBeat + juce::jlimit(0.0, n.lengthBeats, pts[(size_t) i].beat));
                 auto y = yForPitch((float) n.pitch + pts[(size_t) i].value);
 
+                const bool ptSelected = std::find(selPoints.begin(), selPoints.end(), i) != selPoints.end();
+
                 if (pts[(size_t) i].anchor)
                 {
                     g.setColour(juce::Colours::white);
                     g.fillEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f);
                     g.setColour(juce::Colours::black.withAlpha(0.6f));
                     g.drawEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f, 1.0f);
+                    if (ptSelected)
+                    {
+                        g.setColour(juce::Colour(0xff5fe4de));
+                        g.drawEllipse(x - pointRadius - 2.5f, y - pointRadius - 2.5f,
+                                      pointRadius * 2.0f + 5.0f, pointRadius * 2.0f + 5.0f, 1.6f);
+                    }
 
                     const float semis = pts[(size_t) i].value;
                     if (std::abs(semis) >= 0.5f)
@@ -439,6 +498,27 @@ void PianoRollComponent::paint(juce::Graphics& g)
                     g.setColour(juce::Colours::black.withAlpha(0.7f));
                     g.strokePath(d, juce::PathStrokeType(1.0f));
                 }
+            }
+
+            // scale box between two selected bend points
+            if (auto sb = scaleBoxFor(n); sb.valid)
+            {
+                g.setColour(juce::Colours::white.withAlpha(0.06f));
+                g.fillRect(sb.rect);
+                g.setColour(juce::Colours::white.withAlpha(0.35f));
+                g.drawRect(sb.rect, 1.0f);
+
+                for (auto c : { sb.hHandle, sb.vHandle })
+                {
+                    g.setColour(juce::Colour(0xff9a9a9a));
+                    g.fillEllipse(c.x - pointRadius, c.y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f);
+                    g.setColour(juce::Colours::black.withAlpha(0.6f));
+                    g.drawEllipse(c.x - pointRadius, c.y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f, 1.0f);
+                }
+                // little axis hints
+                g.setColour(juce::Colours::white.withAlpha(0.4f));
+                g.drawLine(sb.hHandle.x - 6.0f, sb.hHandle.y, sb.hHandle.x + 6.0f, sb.hHandle.y, 1.0f);
+                g.drawLine(sb.vHandle.x, sb.vHandle.y - 6.0f, sb.vHandle.x, sb.vHandle.y + 6.0f, 1.0f);
             }
         }
     }
@@ -471,6 +551,26 @@ void PianoRollComponent::paint(juce::Graphics& g)
         g.drawRect(r, 1.0f);
     }
 
+    // density popup under the selection
+    if (dragMode == DragMode::none)
+    {
+        if (auto dp = densityPopupFor(snapshot); dp.valid)
+        {
+            g.setColour(juce::Colour(0xff1c1c1c));
+            g.fillRoundedRectangle(dp.box, 3.0f);
+            g.setColour(juce::Colours::white.withAlpha(0.18f));
+            g.drawRoundedRectangle(dp.box, 3.0f, 1.0f);
+
+            g.setColour(juce::Colours::white.withAlpha(0.9f));
+            g.setFont(13.0f);
+            g.drawText("-", dp.minusR, juce::Justification::centred);
+            g.drawText("+", dp.plusR, juce::Justification::centred);
+            g.setFont(11.0f);
+            g.setColour(juce::Colours::white.withAlpha(0.75f));
+            g.drawText(dp.text, dp.box.withTrimmedLeft(20.0f).withTrimmedRight(20.0f), juce::Justification::centred);
+        }
+    }
+
     if (processor.getUiIsPlaying())
     {
         auto x = xForBeat(processor.getUiPlayheadBeat());
@@ -501,6 +601,49 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
     processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
 
     const float range = (float) processor.getPitchBendRangeSemitones();
+
+    // ---- density popup ("- N +" under the selection) ----
+    if (! rightClick)
+    {
+        if (auto dp = densityPopupFor(snap); dp.valid)
+        {
+            if (dp.minusR.contains(pos)) { adjustDiamondDensity(-1); return; }
+            if (dp.plusR.contains(pos))  { adjustDiamondDensity(+1); return; }
+            if (dp.box.contains(pos))    return;   // swallow clicks on the pill body
+        }
+    }
+
+    // ---- scale-box handles between two selected bend points ----
+    if (! rightClick && tool == Tool::draw && soleSelection() != juce::Uuid::null())
+    {
+        if (auto* n = findNote(snap, soleSelection()))
+        {
+            if (auto sb = scaleBoxFor(*n); sb.valid)
+            {
+                const bool onH = pos.getDistanceFrom(sb.hHandle) <= pointRadius + 4.0f;
+                const bool onV = pos.getDistanceFrom(sb.vHandle) <= pointRadius + 4.0f;
+                if (onH || onV)
+                {
+                    const auto& pts = n->bend.getPoints();
+                    sbBeat0 = pts[(size_t) sb.loIdx].beat;
+                    sbBeat1 = pts[(size_t) sb.hiIdx].beat;
+                    sbVal0  = pts[(size_t) sb.loIdx].value;
+                    sbVal1  = pts[(size_t) sb.hiIdx].value;
+                    sbOrigins.clear();
+                    for (int i = 0; i < (int) pts.size(); ++i)
+                        if (! pts[(size_t) i].anchor
+                            && pts[(size_t) i].beat > sbBeat0 + 1.0e-6
+                            && pts[(size_t) i].beat < sbBeat1 - 1.0e-6)
+                            sbOrigins.push_back({ i, pts[(size_t) i].beat, pts[(size_t) i].value });
+
+                    dragMode = onH ? DragMode::scaleBoxH : DragMode::scaleBoxV;
+                    dragNoteId = n->id;
+                    repaint();
+                    return;
+                }
+            }
+        }
+    }
 
     // ---- right-edge resize handle (both tools) ----
     // The end anchor IS the resize handle: grabbing near the note end grabs the
@@ -546,7 +689,64 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
         for (auto it = snap.rbegin(); it != snap.rend(); ++it) if (! isSelected(it->id) && tryResize(*it)) return;
     }
 
-    // ---- Draw-tool point / diamond editing (only when NOT acting as select) ----
+    // ---- bend-point select / drag / remove (draw tool) ----
+    // Shift-click a point to add it to the selection (up to 2, for the scale box);
+    // plain click selects + drags it; right-click removes it.
+    if (tool == Tool::draw && ! addAnchor)
+    {
+        auto tryPointSel = [&](const MpeNote& n) -> bool
+        {
+            const int idx = pointIndexAt(n, pos);
+            if (idx < 0)
+                return false;
+
+            if (rightClick)
+            {
+                if (idx > 0 && idx < n.bend.lastIndex())
+                    processor.modifyNotes([&](std::vector<MpeNote>& notes)
+                    {
+                        for (auto& m : notes)
+                            if (m.id == n.id) { m.bend.removePoint(idx); break; }
+                    });
+                selPoints.clear();
+                repaint();
+                return true;
+            }
+
+            if (e.mods.isShiftDown())
+            {
+                if (! isSelected(n.id) || selection.size() != 1)
+                {
+                    selectOnly(n.id);
+                    selPoints.clear();
+                }
+                auto it = std::find(selPoints.begin(), selPoints.end(), idx);
+                if (it != selPoints.end())
+                    selPoints.erase(it);
+                else
+                {
+                    if (selPoints.size() >= 2) selPoints.clear();
+                    selPoints.push_back(idx);
+                }
+                repaint();
+                return true;
+            }
+
+            selectOnly(n.id);
+            selPoints = { idx };
+            dragMode = DragMode::movePoint;
+            dragNoteId = n.id;
+            dragPointIndex = idx;
+            dragPointIsAnchor = n.bend.isAnchor(idx);
+            repaint();
+            return true;
+        };
+
+        for (auto& n : snap) if (isSelected(n.id) && tryPointSel(n)) return;
+        for (auto& n : snap) if (! isSelected(n.id) && tryPointSel(n)) return;
+    }
+
+    // ---- Draw-tool: Ctrl-click to add a bend point ----
     if (! selectMode)
     {
         if (addAnchor)
@@ -579,36 +779,6 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
             for (auto it = snap.rbegin(); it != snap.rend(); ++it) if (! isSelected(it->id) && tryAdd(*it)) return;
             return;
         }
-
-        auto tryPoint = [&](const MpeNote& n) -> bool
-        {
-            const int idx = pointIndexAt(n, pos);
-            if (idx < 0)
-                return false;
-
-            if (rightClick)
-            {
-                if (idx > 0)
-                    processor.modifyNotes([&](std::vector<MpeNote>& notes)
-                    {
-                        for (auto& m : notes)
-                            if (m.id == n.id) { m.bend.removePoint(idx); break; }
-                    });
-            }
-            else
-            {
-                selectOnly(n.id);
-                dragMode = DragMode::movePoint;
-                dragNoteId = n.id;
-                dragPointIndex = idx;
-                dragPointIsAnchor = n.bend.isAnchor(idx);
-            }
-            repaint();
-            return true;
-        };
-
-        for (auto& n : snap) if (isSelected(n.id) && tryPoint(n)) return;
-        for (auto& n : snap) if (! isSelected(n.id) && tryPoint(n)) return;
     }
 
     // ---- shared: note ribbon ----
@@ -722,6 +892,53 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
             return;
         }
 
+        if (dragMode == DragMode::scaleBoxH || dragMode == DragMode::scaleBoxV)
+        {
+            for (auto& n : notes)
+            {
+                if (n.id != dragNoteId)
+                    continue;
+
+                const double span = sbBeat1 - sbBeat0;
+                const float  vspan = sbVal1 - sbVal0;
+                if (span < 1.0e-6 || std::abs(vspan) < 1.0e-6)
+                    break;
+
+                if (dragMode == DragMode::scaleBoxH)
+                {
+                    const double centre = 0.5 * (sbBeat0 + sbBeat1);
+                    const double handleRel = beatForX(pos.x) - n.startBeat;
+                    float hScale = (float) ((handleRel - centre) / (sbBeat1 - centre));
+                    hScale = juce::jlimit(0.05f, 3.0f, hScale);
+
+                    for (auto& o : sbOrigins)
+                    {
+                        double nb = centre + (o.beat - centre) * (double) hScale;
+                        nb = juce::jlimit(sbBeat0 + 0.02, sbBeat1 - 0.02, nb);
+                        n.bend.setPointRaw(o.index, nb, o.value);
+                    }
+                    n.bend.sortByBeat();
+                }
+                else
+                {
+                    const float handleVal = pitchForY(pos.y) - (float) n.pitch;
+                    float vScale = (handleVal - sbVal0) / vspan;
+                    vScale = juce::jlimit(0.0f, 3.0f, vScale);
+
+                    for (auto& o : sbOrigins)
+                    {
+                        const float frac  = (float) ((o.beat - sbBeat0) / span);
+                        const float chord = sbVal0 + frac * vspan;
+                        float nv = chord + (o.value - chord) * vScale;
+                        nv = juce::jlimit(-range, range, nv);
+                        n.bend.setPointRaw(o.index, o.beat, nv);
+                    }
+                }
+                break;
+            }
+            return;
+        }
+
         if (dragMode == DragMode::resizeEnds)
         {
             const double dBeat  = snapDelta(beatForX(pos.x) - dragAnchorBeat, fine);
@@ -785,6 +1002,7 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent&)
     dragPointIndex = -1;
     dragOrigins.clear();
     endOrigins.clear();
+    sbOrigins.clear();
     preMarqueeSelection.clear();
 }
 

@@ -90,6 +90,22 @@ public:
         return index >= 0 && index < (int) points.size() && points[(size_t) index].anchor;
     }
 
+    // Set a point's beat/value without re-sorting (caller guarantees order is kept
+    // or calls sortByBeat() afterwards). Used for bulk transforms.
+    void setPointRaw(int index, double beat, float value)
+    {
+        if (index >= 0 && index < (int) points.size())
+        {
+            points[(size_t) index].beat = std::max(0.0, beat);
+            points[(size_t) index].value = value;
+        }
+    }
+    void sortByBeat()
+    {
+        std::stable_sort(points.begin(), points.end(),
+            [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
+    }
+
     int lastIndex() const { return (int) points.size() - 1; }
     double lastBeat() const { return points.empty() ? 0.0 : points.back().beat; }
     double beatBefore(int index) const
