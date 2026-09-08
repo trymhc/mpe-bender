@@ -10,6 +10,20 @@ PianoRollComponent::PianoRollComponent(MpePianoRollAudioProcessor& processorToUs
 
 void PianoRollComponent::updateContentSize()
 {
+    // Smallest horizontal zoom = the whole loop just fits the viewport (no zooming
+    // out past 8 bars). Largest = 400 px/beat.
+    float minPixelsPerBeat = defaultPixelsPerBeat;
+    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
+    {
+        const double loop = juce::jmax(1.0, processor.getLoopLengthBeats());
+        const float avail = (float) vp->getWidth() - (float) keyboardWidth - 16.0f;
+        if (avail > 20.0f)
+            minPixelsPerBeat = juce::jmin(400.0f, (float) (avail / loop));
+    }
+
+    pixelsPerBeat = juce::jlimit(minPixelsPerBeat, 400.0f, pixelsPerBeat);
+    rowHeight = juce::jlimit(6.0f, 40.0f, rowHeight);
+
     const int w = keyboardWidth + juce::roundToInt(processor.getLoopLengthBeats() * pixelsPerBeat);
     const int h = juce::roundToInt((float) (highestPitch - lowestPitch + 1) * rowHeight);
     setSize(juce::jmax(1, w), juce::jmax(1, h));
@@ -21,8 +35,8 @@ void PianoRollComponent::zoomHorizontal(float factor, float anchorX)
     const double beatAtAnchor = beatForX(anchorX);
     const float screenX = vp != nullptr ? anchorX - (float) vp->getViewPositionX() : anchorX;
 
-    pixelsPerBeat = juce::jlimit(14.0f, 400.0f, pixelsPerBeat * factor);
-    updateContentSize();
+    pixelsPerBeat *= factor;
+    updateContentSize();   // clamps + resizes
 
     if (vp != nullptr)
         vp->setViewPosition(juce::roundToInt(xForBeat(beatAtAnchor) - screenX), vp->getViewPositionY());
@@ -35,7 +49,7 @@ void PianoRollComponent::zoomVertical(float factor, float anchorY)
     const float pitchAtAnchor = pitchForY(anchorY);
     const float screenY = vp != nullptr ? anchorY - (float) vp->getViewPositionY() : anchorY;
 
-    rowHeight = juce::jlimit(6.0f, 40.0f, rowHeight * factor);
+    rowHeight *= factor;
     updateContentSize();
 
     if (vp != nullptr)

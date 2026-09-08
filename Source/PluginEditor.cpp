@@ -273,4 +273,5 @@ void MpePianoRollAudioProcessorEditor::resized()
     helpLabel.setBounds(infoBar);
 
     rollViewport.setBounds(area);
+    pianoRoll.updateContentSize();   // re-clamp zoom to the new viewport width
 }
