@@ -134,7 +134,7 @@ void MpeEngine::triggerNoteOn(MpeNote& note, std::vector<MpeNote>& notes, juce::
     note.isSounding = true;
     channels[ch].notePitch = note.pitch;
 
-    auto pb = note.bend.sample(0.0);
+    auto pb = note.bendOffsetAt(0.0);
 
     buffer.addEvent(juce::MidiMessage::pitchWheel(ch, pitchBendTo14Bit(pb, pitchBendRangeSemitones)), sampleOffset);
     buffer.addEvent(juce::MidiMessage::noteOn(ch, juce::jlimit(0, 127, note.pitch), note.velocity), sampleOffset);
@@ -170,7 +170,7 @@ void MpeEngine::updateExpression(MpeNote& note, juce::MidiBuffer& buffer, double
     double relBeat = blockStartBeat - note.startBeat;
     int sampleOffset = 0; // block-start-relative update; good enough at control rate
 
-    auto pb = note.bend.sample(relBeat);
+    auto pb = note.bendOffsetAt(relBeat);
 
     if (std::abs(pb - channels[ch].lastPitchBendSemitones) > pitchBendChangeThreshold)
     {

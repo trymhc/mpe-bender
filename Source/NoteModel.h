@@ -5,34 +5,22 @@
 #include <algorithm>
 #include <cmath>
 
-// A node in a note's pitch curve. `anchor` nodes are the structural bend points
-// (drawn as circles, land on semitones); non-anchor nodes are curve shapers
-// (drawn as diamonds) that bow the curve between two anchors. Any number of
-// shapers may sit between two anchors.
+// A bend point in a note's pitch curve. Points are joined by straight lines to
+// form the note's "chord"; a parametric shape (see MpeNote::shape) can then ride
+// on top of that chord.
 struct CurvePoint
 {
     double beat = 0.0;    // position relative to the note's start, in beats
     float value = 0.0f;   // semitone offset from the note's base pitch
-    bool anchor = true;
 };
 
-// Kept only for migrating pre-0.5 saved state (per-segment "tension" scalar).
-inline float applyTension(float t, float tension)
-{
-    t = std::min(1.0f, std::max(0.0f, t));
-    if (tension > 1.0e-4f)  return std::pow(t, 1.0f + tension * 3.0f);
-    if (tension < -1.0e-4f) return 1.0f - std::pow(1.0f - t, 1.0f - tension * 3.0f);
-    return t;
-}
-
-// A pitch envelope over the life of a note: straight between adjacent anchors,
-// a Catmull-Rom spline through any run of anchor -> shapers... -> anchor.
+// Piecewise-linear pitch envelope through a set of bend points.
 class ExpressionCurve
 {
 public:
     explicit ExpressionCurve(float defaultValue = 0.0f) : defaultVal(defaultValue)
     {
-        points.push_back({ 0.0, defaultValue, true });
+        points.push_back({ 0.0, defaultValue });
     }
 
     float defaultValue() const { return defaultVal; }
@@ -42,21 +30,19 @@ public:
     void clearAndReset()
     {
         points.clear();
-        points.push_back({ 0.0, defaultVal, true });
+        points.push_back({ 0.0, defaultVal });
     }
 
-    // Insert a node, keeping the list sorted by beat. Returns its index.
-    int addPoint(double beat, float value, bool anchor = true)
+    int addPoint(double beat, float value)
     {
-        CurvePoint p { std::max(0.0, beat), value, anchor };
+        CurvePoint p { std::max(0.0, beat), value };
         auto insertAt = std::upper_bound(points.begin(), points.end(), p,
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
         auto it = points.insert(insertAt, p);
         return (int) std::distance(points.begin(), it);
     }
 
-    // Move node `index` in time + value, re-sorting. Node 0 is the note's start
-    // anchor: its beat is pinned to 0. Keeps the node's anchor/shaper kind.
+    // Move point `index` in time + value, re-sorting. Point 0 is pinned to beat 0.
     int movePoint(int index, double beat, float value)
     {
         if (index < 0 || index >= (int) points.size())
@@ -64,9 +50,8 @@ public:
         if (index == 0)
             beat = 0.0;
 
-        const bool keepAnchor = points[(size_t) index].anchor;
         const double nb = std::max(0.0, beat);
-        points[(size_t) index] = { nb, value, keepAnchor };
+        points[(size_t) index] = { nb, value };
         std::stable_sort(points.begin(), points.end(),
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
 
@@ -78,73 +63,49 @@ public:
 
     void removePoint(int index)
     {
-        // keep the first (start) and last (end) anchors - they define the note's span
         if ((int) points.size() <= 2)
-            return;
+            return;   // keep the first + last points - they span the note
         if (index > 0 && index < (int) points.size() - 1)
             points.erase(points.begin() + index);
     }
 
-    bool isAnchor(int index) const
-    {
-        return index >= 0 && index < (int) points.size() && points[(size_t) index].anchor;
-    }
-
-    // Set a point's beat/value without re-sorting (caller guarantees order is kept
-    // or calls sortByBeat() afterwards). Used for bulk transforms.
-    void setPointRaw(int index, double beat, float value)
-    {
-        if (index >= 0 && index < (int) points.size())
-        {
-            points[(size_t) index].beat = std::max(0.0, beat);
-            points[(size_t) index].value = value;
-        }
-    }
-    void sortByBeat()
-    {
-        std::stable_sort(points.begin(), points.end(),
-            [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
-    }
-
     int lastIndex() const { return (int) points.size() - 1; }
     double lastBeat() const { return points.empty() ? 0.0 : points.back().beat; }
+    double firstBeat() const { return points.empty() ? 0.0 : points.front().beat; }
     double beatBefore(int index) const
     {
         return (index > 0 && index < (int) points.size()) ? points[(size_t) (index - 1)].beat : 0.0;
     }
 
-    // Ensure the curve has a trailing anchor that marks the note end. Returns the
-    // note length the curve implies (its last point's beat).
+    // Ensure a trailing point marks the note end. Returns the implied note length.
     double conformEnd(double lengthBeats)
     {
         if (points.empty())
-            points.push_back({ 0.0, defaultVal, true });
+            points.push_back({ 0.0, defaultVal });
 
         if ((int) points.size() < 2)
         {
-            points.push_back({ std::max(0.25, lengthBeats), points.back().value, true });
+            points.push_back({ std::max(0.25, lengthBeats), points.back().value });
             return points.back().beat;
         }
 
-        points.back().anchor = true;
         if (points.back().beat < lengthBeats - 1.0e-6)
         {
-            points.push_back({ lengthBeats, points.back().value, true });
+            points.push_back({ lengthBeats, points.back().value });
             return lengthBeats;
         }
         return points.back().beat;
     }
 
-    // legacy loaders
-    void setPoint(double beat, float value) { setPoint(beat, value, true); }
-    void setPoint(double beat, float value, bool anchor)
+    void setPoint(double beat, float value)
     {
         beat = std::max(0.0, beat);
         for (auto& p : points)
-            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; p.anchor = anchor; return; }
-        addPoint(beat, value, anchor);
+            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; return; }
+        addPoint(beat, value);
     }
 
+    // Linear value at a beat offset from the note start (holds the end values).
     float sample(double beat) const
     {
         if (points.empty())
@@ -163,29 +124,10 @@ public:
         const auto& L = points[i];
         const auto& R = points[i + 1];
         const double span = R.beat - L.beat;
-        const float t = span < 1.0e-9 ? 0.0f : (float) ((beat - L.beat) / span);
-
-        if (L.anchor && R.anchor)
-            return L.value + t * (R.value - L.value);
-
-        // curved run: widen [a..b] so both ends are anchors (or the list ends)
-        int a = (int) i;
-        while (a > 0 && ! points[(size_t) a].anchor) --a;
-        int b = (int) i + 1;
-        while (b < (int) points.size() - 1 && ! points[(size_t) b].anchor) ++b;
-
-        auto V = [&](int idx) { return points[(size_t) juce::jlimit(a, b, idx)].value; };
-        const float p0 = V((int) i - 1);
-        const float p1 = V((int) i);
-        const float p2 = V((int) i + 1);
-        const float p3 = V((int) i + 2);
-        const float t2 = t * t;
-        const float t3 = t2 * t;
-
-        return 0.5f * ((2.0f * p1)
-                     + (-p0 + p2) * t
-                     + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2
-                     + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
+        if (span < 1.0e-9)
+            return R.value;
+        const float t = (float) ((beat - L.beat) / span);
+        return L.value + t * (R.value - L.value);
     }
 
 private:
@@ -193,9 +135,12 @@ private:
     std::vector<CurvePoint> points;
 };
 
+enum class BendShape { straight = 0, sine = 1, triangle = 2 };
+
 // One note in the piano roll. Its pitch over time is `pitch` (the base key) plus
-// the `bend` curve (semitone offset), so a note can start on one key and sweep to
-// another - drawn and heard as a single bending note.
+// the `bend` chord (piecewise-linear through the bend points), plus - when `shape`
+// is not straight - a sine/triangle wave riding on the chord whose cycle count,
+// horizontal skew and start/end amplitude are all editable.
 struct MpeNote
 {
     juce::Uuid id;
@@ -208,16 +153,48 @@ struct MpeNote
 
     ExpressionCurve bend { 0.0f };
 
+    BendShape shape = BendShape::straight;
+    float shapeCycles   = 3.0f;    // full cycles between the first and last bend point
+    float shapeSkew     = 1.0f;    // phase warp: >1 bunches cycles toward the end
+    float shapeAmpStart = 0.0f;    // wave amplitude (semitones) at the start point
+    float shapeAmpEnd   = 2.0f;    // wave amplitude (semitones) at the end point
+
     int assignedChannel = -1;
     bool isSounding = false;
 
     double endBeat() const { return startBeat + lengthBeats; }
+    bool isActiveAt(double beat) const { return beat >= startBeat && beat < endBeat(); }
 
-    bool isActiveAt(double beat) const
+    // Full semitone offset at a note-relative beat: chord + parametric wave.
+    float bendOffsetAt(double beatOffset) const
     {
-        return beat >= startBeat && beat < endBeat();
+        const float chord = bend.sample(beatOffset);
+        if (shape == BendShape::straight)
+            return chord;
+
+        const double first = bend.firstBeat();
+        const double last  = std::max(bend.lastBeat(), first + 1.0e-6);
+        const float t = (float) juce::jlimit(0.0, 1.0, (beatOffset - first) / (last - first));
+
+        const float amp    = shapeAmpStart + t * (shapeAmpEnd - shapeAmpStart);
+        const float skew   = juce::jlimit(0.2f, 5.0f, shapeSkew);
+        const float phase  = std::pow(t, skew) * juce::jmax(0.0f, shapeCycles);
+
+        float w;
+        if (shape == BendShape::sine)
+        {
+            w = std::sin(phase * juce::MathConstants<float>::twoPi);
+        }
+        else
+        {
+            const float p = phase - std::floor(phase);   // 0..1
+            w = (p < 0.25f) ? 4.0f * p
+              : (p < 0.75f) ? 2.0f - 4.0f * p
+                            : 4.0f * p - 4.0f;            // 0 -> 1 -> 0 -> -1 -> 0
+        }
+        return chord + w * amp;
     }
 
-    float bendAtAbsBeat(double absBeat) const { return bend.sample(absBeat - startBeat); }
+    float bendAtAbsBeat(double absBeat) const { return bendOffsetAt(absBeat - startBeat); }
     float pitchAtAbsBeat(double absBeat) const { return (float) pitch + bendAtAbsBeat(absBeat); }
 };

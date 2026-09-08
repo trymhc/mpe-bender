@@ -5,19 +5,23 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     : AudioProcessor(BusesProperties()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
-    // A couple of demo notes so the roll isn't empty on first load: the first one
-    // bends up two semitones over its length, the second sits flat.
+    // A couple of demo notes so the roll isn't empty on first load: a rising note
+    // with a growing-amplitude sine wobble, and a flat straight note.
     MpeNote a;
     a.startBeat = 0.0;
-    a.lengthBeats = 2.0;
-    a.pitch = 60;
-    a.bend.addPoint(1.0, 2.0f);
-    a.bend.addPoint(0.5, 0.4f, false);   // a shaper diamond -> curved scoop into the bend
-    a.lengthBeats = a.bend.conformEnd(2.0);   // end anchor at beat 2, value held at 2 st
+    a.lengthBeats = 4.0;
+    a.pitch = 55;
+    a.bend.addPoint(4.0, 7.0f);          // rises a fifth over 4 beats (the chord)
+    a.lengthBeats = a.bend.conformEnd(4.0);
+    a.shape = BendShape::sine;
+    a.shapeCycles = 5.0f;
+    a.shapeSkew = 1.6f;
+    a.shapeAmpStart = 0.3f;
+    a.shapeAmpEnd = 2.5f;
     notes.push_back(a);
 
     MpeNote b;
-    b.startBeat = 2.0;
+    b.startBeat = 4.0;
     b.lengthBeats = 2.0;
     b.pitch = 64;
     b.lengthBeats = b.bend.conformEnd(2.0);
@@ -304,23 +308,21 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
             nt.setProperty("pitch", n.pitch, nullptr);
             nt.setProperty("velocity", n.velocity, nullptr);
             nt.setProperty("releaseVelocity", n.releaseVelocity, nullptr);
+            nt.setProperty("shape", (int) n.shape, nullptr);
+            nt.setProperty("shapeCycles", n.shapeCycles, nullptr);
+            nt.setProperty("shapeSkew", n.shapeSkew, nullptr);
+            nt.setProperty("shapeAmpStart", n.shapeAmpStart, nullptr);
+            nt.setProperty("shapeAmpEnd", n.shapeAmpEnd, nullptr);
 
-            auto serialiseCurve = [](const ExpressionCurve& c, const char* tagName)
+            juce::ValueTree ct("Bend");
+            for (auto& p : n.bend.getPoints())
             {
-                juce::ValueTree ct(tagName);
-                for (auto& p : c.getPoints())
-                {
-                    juce::ValueTree pt("Pt");
-                    pt.setProperty("beat", p.beat, nullptr);
-                    pt.setProperty("value", p.value, nullptr);
-                    if (! p.anchor)
-                        pt.setProperty("shaper", 1, nullptr);
-                    ct.appendChild(pt, nullptr);
-                }
-                return ct;
-            };
-
-            nt.appendChild(serialiseCurve(n.bend, "Bend"), nullptr);
+                juce::ValueTree pt("Pt");
+                pt.setProperty("beat", p.beat, nullptr);
+                pt.setProperty("value", p.value, nullptr);
+                ct.appendChild(pt, nullptr);
+            }
+            nt.appendChild(ct, nullptr);
 
             notesTree.appendChild(nt, nullptr);
         }
@@ -359,6 +361,11 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
         n.pitch = nt.getProperty("pitch", 60);
         n.velocity = (float) (double) nt.getProperty("velocity", 0.8);
         n.releaseVelocity = (float) (double) nt.getProperty("releaseVelocity", 0.5);
+        n.shape = (BendShape) (int) nt.getProperty("shape", 0);
+        n.shapeCycles   = (float) (double) nt.getProperty("shapeCycles", 3.0);
+        n.shapeSkew     = (float) (double) nt.getProperty("shapeSkew", 1.0);
+        n.shapeAmpStart = (float) (double) nt.getProperty("shapeAmpStart", 0.0);
+        n.shapeAmpEnd   = (float) (double) nt.getProperty("shapeAmpEnd", 2.0);
 
         auto deserialiseCurve = [&](ExpressionCurve& curve, const char* tagName)
         {
@@ -366,36 +373,17 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
             if (! ct.isValid())
                 return;
             curve.clearAndReset();
-
-            struct Loaded { double beat; float value; float tension; bool shaper; };
-            std::vector<Loaded> in;
             for (int p = 0; p < ct.getNumChildren(); ++p)
             {
                 auto pt = ct.getChild(p);
-                in.push_back({ (double) pt.getProperty("beat", 0.0),
-                               (float) (double) pt.getProperty("value", 0.0),
-                               (float) (double) pt.getProperty("tension", 0.0),
-                               (bool) pt.getProperty("shaper", false) });
-            }
-
-            for (auto& l : in)
-                curve.setPoint(l.beat, l.value, ! l.shaper);
-
-            // migrate the pre-0.5 per-segment "tension" scalar to a shaper diamond
-            for (size_t k = 0; k + 1 < in.size(); ++k)
-            {
-                if (std::abs(in[k].tension) < 1.0e-4f)
-                    continue;
-                const double mb = 0.5 * (in[k].beat + in[k + 1].beat);
-                const float  w  = applyTension(0.5f, in[k].tension);
-                const float  mv = in[k].value + w * (in[k + 1].value - in[k].value);
-                curve.addPoint(mb, mv, false);
+                curve.setPoint((double) pt.getProperty("beat", 0.0),
+                               (float) (double) pt.getProperty("value", 0.0));
             }
         };
 
         deserialiseCurve(n.bend, "Bend");
         deserialiseCurve(n.bend, "PitchBend");   // accept the pre-0.3 tag name too
-        n.lengthBeats = n.bend.conformEnd(n.lengthBeats);   // guarantee a trailing end anchor
+        n.lengthBeats = n.bend.conformEnd(n.lengthBeats);
 
         loaded.push_back(n);
     }
