@@ -91,6 +91,9 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
 
    A note with points on different keys is drawn (and heard) sweeping between them,
    overlapping whatever notes lie on the rows in between.
+
+   **Zoom**: `-` / `+` / `1:1` buttons, or **Ctrl+scroll** (horizontal, around the
+   cursor) and **Ctrl+Shift+scroll** (vertical).
 5. Press play in FL. The plugin loops its own pattern (**Loop (beats)** slider),
    synced to the host tempo/position, and plays Serum with the per‑note bends.
 
