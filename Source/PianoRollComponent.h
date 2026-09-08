@@ -27,6 +27,7 @@ public:
     std::function<void(Tool)> onToolChanged;
 
     void paint(juce::Graphics&) override;
+    void mouseMove(const juce::MouseEvent&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;

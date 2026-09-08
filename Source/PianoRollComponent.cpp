@@ -75,8 +75,13 @@ bool PianoRollComponent::ribbonHit(const MpeNote& note, juce::Point<float> pos) 
 bool PianoRollComponent::nearRightEdge(const MpeNote& note, juce::Point<float> pos) const
 {
     const float ex = xForBeat(note.endBeat());
+    if (pos.x < ex - 7.0f || pos.x > ex + 4.0f)
+        return false;
+
+    // vertical: anywhere near the note's height at its end (generous, so a bend
+    // point sitting on the edge doesn't steal the resize)
     const float ey = yForPitch((float) note.pitch + note.bend.sample(note.lengthBeats));
-    return std::abs(pos.x - ex) <= 6.0f && std::abs(pos.y - ey) <= rowHeight;
+    return std::abs(pos.y - ey) <= rowHeight * 1.5f;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +297,25 @@ void PianoRollComponent::paint(juce::Graphics& g)
 //  Mouse
 // ---------------------------------------------------------------------------
 
+void PianoRollComponent::mouseMove(const juce::MouseEvent& e)
+{
+    auto cursor = juce::MouseCursor::NormalCursor;
+
+    if (e.position.x >= (float) keyboardWidth && ! e.mods.isAnyModifierKeyDown())
+    {
+        std::vector<MpeNote> snap;
+        processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
+        for (auto& n : snap)
+            if (nearRightEdge(n, e.position))
+            {
+                cursor = juce::MouseCursor::LeftRightResizeCursor;
+                break;
+            }
+    }
+
+    setMouseCursor(cursor);
+}
+
 void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
@@ -310,6 +334,25 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
     processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
 
     const float range = (float) processor.getPitchBendRangeSemitones();
+
+    // ---- right-edge resize handle (both tools) ----
+    // Checked before bend points so a point sitting on the note end doesn't block
+    // resizing; hold the drag horizontally to change length.
+    if (! rightClick && ! addAnchor && ! e.mods.isShiftDown())
+    {
+        auto tryResize = [&](const MpeNote& n) -> bool
+        {
+            if (! nearRightEdge(n, pos))
+                return false;
+            selectOnly(n.id);
+            dragMode = DragMode::resizeRight;
+            dragNoteId = n.id;
+            repaint();
+            return true;
+        };
+        for (auto& n : snap) if (isSelected(n.id) && tryResize(n)) return;
+        for (auto it = snap.rbegin(); it != snap.rend(); ++it) if (! isSelected(it->id) && tryResize(*it)) return;
+    }
 
     // ---- Draw-tool point / diamond editing (only when NOT acting as select) ----
     if (! selectMode)
@@ -407,15 +450,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
             if (! (selectMode && isSelected(n.id)))
                 selectOnly(n.id);
 
-        if (! selectMode && selection.size() == 1 && nearRightEdge(n, pos))
-        {
-            dragMode = DragMode::resizeRight;
-            dragNoteId = n.id;
-        }
-        else
-        {
-            beginMoveNotes(pos, snap);
-        }
+        beginMoveNotes(pos, snap);
         repaint();
         return true;
     };
