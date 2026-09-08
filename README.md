@@ -74,12 +74,12 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
 
    **Draw** (b):
    - **click** empty grid = new note; **drag body** = move; **drag right edge** = length
-   - **double‑click** or **Ctrl+click** the ribbon = add a bend/curve point (any number)
-   - **drag a point** = bend in time + pitch (hold **Shift** for fine / no snap)
-   - **drag the diamond** in the middle of a segment = curve it (tension); it turns
-     yellow when curved
-   - **right‑click** a point = remove it; **right‑click** a diamond = straighten;
-     **right‑click** the note body = delete the note
+   - **double‑click** the ribbon = add a **curve diamond** (any number between two
+     bend points); the segment bows through it. **Ctrl+click** = add a **bend point**.
+   - **drag** any point or diamond = shape the curve (time + pitch)
+   - **right‑click** a point/diamond = remove it; **right‑click** the note body = delete
+   - hold **Alt** while dragging = fine / no snap
+   - hold **Shift** while dragging = act as the Select tool for that drag (springs back)
 
    **Select** (s):
    - **drag a box** = marquee‑select notes; **Shift**+drag = add to the selection
