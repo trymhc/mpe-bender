@@ -1,24 +1,15 @@
 #include "PluginEditor.h"
 
 MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollAudioProcessor& p)
-    : AudioProcessorEditor(&p), processor(p), pianoRoll(p),
-      pitchBendLane(p, CurveLaneComponent::LaneType::pitchBend, "Pitch Bend"),
-      pressureLane(p, CurveLaneComponent::LaneType::pressure, "Pressure"),
-      timbreLane(p, CurveLaneComponent::LaneType::timbre, "Timbre")
+    : AudioProcessorEditor(&p), processor(p), pianoRoll(p)
 {
     setResizable(true, true);
-    setSize(960, 760);
-    setResizeLimits(600, 440, 2400, 1600);
+    setSize(960, 640);
+    setResizeLimits(600, 360, 2400, 1600);
 
     rollViewport.setViewedComponent(&pianoRoll, false);
     rollViewport.setScrollBarsShown(true, true);
     addAndMakeVisible(rollViewport);
-
-    pianoRoll.onNoteSelected = [this](juce::Uuid id) { updateSelection(id); };
-
-    addAndMakeVisible(pitchBendLane);
-    addAndMakeVisible(pressureLane);
-    addAndMakeVisible(timbreLane);
 
     auto setupSlider = [this](juce::Slider& s, juce::Label& label, double min, double max, double value, double step)
     {
@@ -45,7 +36,7 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     pbRangeSlider.onValueChange = [this]
     {
         processor.setPitchBendRangeSemitones((int) pbRangeSlider.getValue());
-        pitchBendLane.repaint();
+        pianoRoll.repaint();
     };
 
     setupSlider(channelsSlider, channelsLabel, 1.0, 14.0, processor.getNumMemberChannels(), 1.0);
@@ -77,6 +68,14 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     statusLabel.setFont(13.0f);
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.85f));
     addAndMakeVisible(statusLabel);
+
+    helpLabel.setJustificationType(juce::Justification::centredRight);
+    helpLabel.setFont(11.0f);
+    helpLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.5f));
+    helpLabel.setText("click: add note   -   drag body: move   -   drag right edge: length   -   "
+                      "double-click note: add bend point   -   drag point: bend   -   right-click: delete",
+                      juce::dontSendNotification);
+    addAndMakeVisible(helpLabel);
 
     refreshHostedUi();
     startTimerHz(10);
@@ -198,13 +197,6 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
     refreshHostedUi();
 }
 
-void MpePianoRollAudioProcessorEditor::updateSelection(juce::Uuid id)
-{
-    pitchBendLane.setSelectedNote(id);
-    pressureLane.setSelectedNote(id);
-    timbreLane.setSelectedNote(id);
-}
-
 void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff121214));
@@ -236,17 +228,9 @@ void MpePianoRollAudioProcessorEditor::resized()
     synthBar.removeFromLeft(10);
     hostedStatusLabel.setBounds(synthBar);
 
-    statusLabel.setBounds(area.removeFromTop(20).reduced(6, 2));
-
-    auto lanesHeight = 90;
-    auto lanesArea = area.removeFromBottom(lanesHeight * 3);
-    pitchBendLane.setBounds(lanesArea.removeFromTop(lanesHeight));
-    pressureLane.setBounds(lanesArea.removeFromTop(lanesHeight));
-    timbreLane.setBounds(lanesArea);
-
-    pitchBendLane.setPixelsPerBeat(PianoRollComponent::pixelsPerBeat);
-    pressureLane.setPixelsPerBeat(PianoRollComponent::pixelsPerBeat);
-    timbreLane.setPixelsPerBeat(PianoRollComponent::pixelsPerBeat);
+    auto infoBar = area.removeFromTop(18).reduced(6, 1);
+    statusLabel.setBounds(infoBar.removeFromLeft(infoBar.getWidth() / 3));
+    helpLabel.setBounds(infoBar);
 
     rollViewport.setBounds(area);
 }

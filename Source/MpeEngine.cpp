@@ -3,7 +3,6 @@
 namespace
 {
     constexpr float pitchBendChangeThreshold = 0.02f;   // semitones
-    constexpr float ccChangeThreshold = 1.0f / 127.0f;  // normalised 0..1
 }
 
 MpeEngine::MpeEngine()
@@ -135,19 +134,13 @@ void MpeEngine::triggerNoteOn(MpeNote& note, std::vector<MpeNote>& notes, juce::
     note.isSounding = true;
     channels[ch].notePitch = note.pitch;
 
-    auto pb = note.pitchBend.sample(0.0);
-    auto pressure = note.pressure.sample(0.0);
-    auto timbre = note.timbre.sample(0.0);
+    auto pb = note.bend.sample(0.0);
 
     buffer.addEvent(juce::MidiMessage::pitchWheel(ch, pitchBendTo14Bit(pb, pitchBendRangeSemitones)), sampleOffset);
-    buffer.addEvent(juce::MidiMessage::channelPressureChange(ch, juce::roundToInt(pressure * 127.0f)), sampleOffset);
-    buffer.addEvent(juce::MidiMessage::controllerEvent(ch, 74, juce::roundToInt(timbre * 127.0f)), sampleOffset);
     buffer.addEvent(juce::MidiMessage::noteOn(ch, juce::jlimit(0, 127, note.pitch), note.velocity), sampleOffset);
     noteOnCount.fetch_add(1, std::memory_order_relaxed);
 
     channels[ch].lastPitchBendSemitones = pb;
-    channels[ch].lastPressure = pressure;
-    channels[ch].lastTimbre = timbre;
 }
 
 void MpeEngine::triggerNoteOff(MpeNote& note, juce::MidiBuffer& buffer,
@@ -177,26 +170,12 @@ void MpeEngine::updateExpression(MpeNote& note, juce::MidiBuffer& buffer, double
     double relBeat = blockStartBeat - note.startBeat;
     int sampleOffset = 0; // block-start-relative update; good enough at control rate
 
-    auto pb = note.pitchBend.sample(relBeat);
-    auto pressure = note.pressure.sample(relBeat);
-    auto timbre = note.timbre.sample(relBeat);
+    auto pb = note.bend.sample(relBeat);
 
     if (std::abs(pb - channels[ch].lastPitchBendSemitones) > pitchBendChangeThreshold)
     {
         buffer.addEvent(juce::MidiMessage::pitchWheel(ch, pitchBendTo14Bit(pb, pitchBendRangeSemitones)), sampleOffset);
         channels[ch].lastPitchBendSemitones = pb;
-    }
-
-    if (std::abs(pressure - channels[ch].lastPressure) > ccChangeThreshold)
-    {
-        buffer.addEvent(juce::MidiMessage::channelPressureChange(ch, juce::roundToInt(pressure * 127.0f)), sampleOffset);
-        channels[ch].lastPressure = pressure;
-    }
-
-    if (std::abs(timbre - channels[ch].lastTimbre) > ccChangeThreshold)
-    {
-        buffer.addEvent(juce::MidiMessage::controllerEvent(ch, 74, juce::roundToInt(timbre * 127.0f)), sampleOffset);
-        channels[ch].lastTimbre = timbre;
     }
 }
 

@@ -30,7 +30,6 @@ target_sources(MpePianoRoll
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
         Source/PianoRollComponent.cpp
-        Source/CurveLaneComponent.cpp
         Source/MpeEngine.cpp
         Source/HostedPlugin.cpp)
 

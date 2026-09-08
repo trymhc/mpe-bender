@@ -3,7 +3,6 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 #include "PianoRollComponent.h"
-#include "CurveLaneComponent.h"
 #include "HostedPluginWindow.h"
 #include <memory>
 
@@ -18,7 +17,6 @@ public:
     void resized() override;
 
 private:
-    void updateSelection(juce::Uuid id);
     void timerCallback() override;
 
     void chooseHostedPlugin();
@@ -29,8 +27,6 @@ private:
 
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;
-
-    CurveLaneComponent pitchBendLane, pressureLane, timbreLane;
 
     juce::Label loopLabel { {}, "Loop (beats)" };
     juce::Slider loopLengthSlider;
@@ -48,6 +44,7 @@ private:
     std::unique_ptr<HostedPluginWindow> hostedWindow;
 
     juce::Label statusLabel;
+    juce::Label helpLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MpePianoRollAudioProcessorEditor)
 };

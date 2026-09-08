@@ -5,13 +5,14 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     : AudioProcessor(BusesProperties()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
-    // A couple of demo notes so the roll isn't empty on first load.
+    // A couple of demo notes so the roll isn't empty on first load: the first one
+    // bends up two semitones over its length, the second sits flat.
     MpeNote a;
     a.startBeat = 0.0;
     a.lengthBeats = 2.0;
     a.pitch = 60;
-    a.pitchBend.setPoint(1.0, 2.0f);
-    a.pitchBend.setPoint(2.0, 0.0f);
+    a.bend.addPoint(1.0, 2.0f);
+    a.bend.addPoint(2.0, 2.0f);
     notes.push_back(a);
 
     MpeNote b;
@@ -315,9 +316,7 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
                 return ct;
             };
 
-            nt.appendChild(serialiseCurve(n.pitchBend, "PitchBend"), nullptr);
-            nt.appendChild(serialiseCurve(n.pressure, "Pressure"), nullptr);
-            nt.appendChild(serialiseCurve(n.timbre, "Timbre"), nullptr);
+            nt.appendChild(serialiseCurve(n.bend, "Bend"), nullptr);
 
             notesTree.appendChild(nt, nullptr);
         }
@@ -370,9 +369,8 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
             }
         };
 
-        deserialiseCurve(n.pitchBend, "PitchBend");
-        deserialiseCurve(n.pressure, "Pressure");
-        deserialiseCurve(n.timbre, "Timbre");
+        deserialiseCurve(n.bend, "Bend");
+        deserialiseCurve(n.bend, "PitchBend");   // accept the pre-0.3 tag name too
 
         loaded.push_back(n);
     }

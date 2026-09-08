@@ -5,9 +5,9 @@
 #include <array>
 #include <vector>
 
-// Generates MPE-compliant MIDI (note on/off, per-note pitch bend, channel pressure,
-// CC74 timbre) from a list of notes with per-note expression curves, driven by the
-// host's playhead position. Owns the MPE member-channel pool for a single zone.
+// Generates MPE-compliant MIDI (note on/off + per-note pitch bend) from a list of
+// notes with per-note bend curves, driven by the host's playhead position. Owns the
+// MPE member-channel pool for a single zone.
 class MpeEngine
 {
 public:
@@ -47,8 +47,6 @@ private:
         juce::Uuid noteId;
         int notePitch = -1;
         float lastPitchBendSemitones = 0.0f;
-        float lastPressure = -1.0f;
-        float lastTimbre = -1.0f;
         juce::uint32 allocatedOrder = 0;
     };
 
