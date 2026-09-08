@@ -17,6 +17,10 @@ juce_add_plugin(MpePianoRoll
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+    # After each build, drop the .vst3 into a folder FL Studio already scans
+    # (this path is user-writable - no admin - and is in FL's plugin search list).
+    COPY_PLUGIN_AFTER_BUILD TRUE
+    VST3_COPY_DIR "$ENV{LOCALAPPDATA}/Programs/Common/VST3"
     VST3_CATEGORIES "Instrument" "Synth"
     PRODUCT_NAME "MPE Bender")
 
