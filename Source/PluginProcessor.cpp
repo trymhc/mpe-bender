@@ -341,7 +341,7 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
     if (! state.isValid())
         return;
 
-    loopLengthBeats = state.getProperty("loopLengthBeats", 8.0);
+    loopLengthBeats = state.getProperty("loopLengthBeats", 32.0);
     engine.setPitchBendRangeSemitones((int) state.getProperty("pitchBendRange", 48));
     engine.setNumMemberChannels((int) state.getProperty("numMemberChannels", 14));
     forwardHostMidi.store((bool) state.getProperty("forwardHostMidi", true), std::memory_order_relaxed);

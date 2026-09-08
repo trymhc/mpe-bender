@@ -31,7 +31,7 @@ private:
     juce::TextButton drawButton { "Draw" };
     juce::TextButton selectButton { "Select" };
 
-    juce::Label loopLabel { {}, "Loop (beats)" };
+    juce::Label loopLabel { {}, "Loop (bars)" };
     juce::Slider loopLengthSlider;
     juce::Label pbRangeLabel { {}, "PB Range (st)" };
     juce::Slider pbRangeSlider;

@@ -107,7 +107,7 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
 
-    double loopLengthBeats = 8.0;
+    double loopLengthBeats = 32.0;   // 8 bars of 4/4
     bool wasPlaying = false;
     bool zoneConfigSent = false;
     std::atomic<bool> forwardHostMidi { true };

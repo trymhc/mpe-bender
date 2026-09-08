@@ -39,10 +39,10 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
         addAndMakeVisible(label);
     };
 
-    setupSlider(loopLengthSlider, loopLabel, 1.0, 64.0, processor.getLoopLengthBeats(), 1.0);
+    setupSlider(loopLengthSlider, loopLabel, 1.0, 32.0, processor.getLoopLengthBeats() / 4.0, 1.0);
     loopLengthSlider.onValueChange = [this]
     {
-        processor.setLoopLengthBeats(loopLengthSlider.getValue());
+        processor.setLoopLengthBeats(loopLengthSlider.getValue() * 4.0);   // slider is in bars (4/4)
         pianoRoll.setSize(PianoRollComponent::keyboardWidth
                                + (int) (processor.getLoopLengthBeats() * PianoRollComponent::pixelsPerBeat),
                            pianoRoll.getHeight());
