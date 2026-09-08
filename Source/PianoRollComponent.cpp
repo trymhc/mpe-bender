@@ -264,8 +264,6 @@ void PianoRollComponent::paint(juce::Graphics& g)
 
         if (pitch % 12 == 0)
         {
-            g.setColour(juce::Colours::white.withAlpha(0.18f));
-            g.drawHorizontalLine((int) yTop, (float) keyboardWidth, (float) getWidth());
             g.setColour(juce::Colour(0xff000000));
             g.setFont(9.0f);
             g.drawText("C" + juce::String(pitch / 12 - 1), 2, (int) yTop, keyboardWidth - 4, (int) rowHeight,
@@ -295,24 +293,23 @@ void PianoRollComponent::paint(juce::Graphics& g)
         juce::Path p;
         buildNotePath(n, p);
 
-        const juce::Colour base = selected ? juce::Colour(0xffffffff)
-                                : n.isSounding ? juce::Colour(0xffffffff)
-                                               : juce::Colour(0xff8c8c8c);
+        const juce::Colour base = n.isSounding ? juce::Colour(0xffb6f6f2)
+                                : selected       ? juce::Colour(0xff5fe4de)
+                                                 : juce::Colour(0xff1fbdb6);   // turquoise
 
-        // sounding notes get a soft white halo so they read without colour
+        constexpr auto joint = juce::PathStrokeType::curved;
+        constexpr auto cap   = juce::PathStrokeType::butt;
+
         if (n.isSounding)
         {
-            g.setColour(juce::Colours::white.withAlpha(0.18f));
-            g.strokePath(p, juce::PathStrokeType(selected ? 18.0f : 16.0f,
-                                                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour(juce::Colour(0xff5fe4de).withAlpha(0.22f));
+            g.strokePath(p, juce::PathStrokeType(selected ? 18.0f : 16.0f, joint, cap));
         }
 
         g.setColour(juce::Colours::black.withAlpha(0.55f));
-        g.strokePath(p, juce::PathStrokeType(selected ? 12.0f : 10.0f,
-                                             juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setColour(base.withAlpha(selected || n.isSounding ? 0.98f : 0.78f));
-        g.strokePath(p, juce::PathStrokeType(selected ? 9.0f : 7.0f,
-                                             juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(selected ? 12.0f : 10.0f, joint, cap));
+        g.setColour(base.withAlpha(selected || n.isSounding ? 1.0f : 0.85f));
+        g.strokePath(p, juce::PathStrokeType(selected ? 9.0f : 7.0f, joint, cap));
     };
 
     for (auto& n : snapshot) if (! isSelected(n.id)) drawNote(n, false);

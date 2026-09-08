@@ -13,31 +13,31 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     rollViewport.setScrollBarsShown(true, true);
     addAndMakeVisible(rollViewport);
 
-    // Draw / Select tool toggle (like FL's piano roll)
-    for (auto* b : { &drawButton, &selectButton })
+    // current-preset field (name of the hosted synth's current program, if it has one)
+    addAndMakeVisible(presetPrevButton);
+    addAndMakeVisible(presetNextButton);
+    addAndMakeVisible(presetBrowseButton);
+    addAndMakeVisible(presetBox);
+    presetBox.setJustificationType(juce::Justification::centredLeft);
+    presetBox.setTextWhenNothingSelected("no synth");
+    presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1c1c1c));
+    presetBox.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+    presetBox.setColour(juce::ComboBox::textColourId, juce::Colours::white.withAlpha(0.9f));
+    presetBox.setColour(juce::ComboBox::arrowColourId, juce::Colours::white.withAlpha(0.55f));
+    presetPrevButton.onClick   = [this] { stepPreset(-1); };
+    presetNextButton.onClick   = [this] { stepPreset(+1); };
+    presetBrowseButton.onClick = [this] { toggleHostedWindow(); };   // Serum's own browser
+    presetBox.onChange = [this]
     {
-        b->setClickingTogglesState(true);
-        b->setRadioGroupId(1001);
-        addAndMakeVisible(*b);
-    }
-    drawButton.setToggleState(true, juce::dontSendNotification);
-    drawButton.onClick   = [this] { pianoRoll.setTool(PianoRollComponent::Tool::draw); };
-    selectButton.onClick = [this] { pianoRoll.setTool(PianoRollComponent::Tool::select); };
-    pianoRoll.onToolChanged = [this](PianoRollComponent::Tool t)
-    {
-        auto& b = (t == PianoRollComponent::Tool::select ? selectButton : drawButton);
-        b.setToggleState(true, juce::dontSendNotification);
+        if (auto* inst = processor.getHostedPlugin().getInstance())
+        {
+            const int id = presetBox.getSelectedId();
+            if (id > 0 && id - 1 != inst->getCurrentProgram())
+                inst->setCurrentProgram(id - 1);
+        }
     };
 
-    auto zoomBy = [this](float factor)
-    {
-        const float cx = (float) rollViewport.getViewPositionX() + rollViewport.getViewWidth() * 0.5f;
-        pianoRoll.zoomHorizontal(factor, cx);
-    };
-    for (auto* b : { &zoomOutButton, &zoomInButton, &zoomResetButton })
-        addAndMakeVisible(*b);
-    zoomOutButton.onClick   = [zoomBy] { zoomBy(1.0f / 1.3f); };
-    zoomInButton.onClick    = [zoomBy] { zoomBy(1.3f); };
+    addAndMakeVisible(zoomResetButton);
     zoomResetButton.onClick = [this] { pianoRoll.resetZoom(); };
 
     auto setupSlider = [this](juce::Slider& s, juce::Label& label, double min, double max, double value, double step)
@@ -98,16 +98,6 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     statusLabel.setFont(13.0f);
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.85f));
     addAndMakeVisible(statusLabel);
-
-    helpLabel.setJustificationType(juce::Justification::centredRight);
-    helpLabel.setFont(11.0f);
-    helpLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.5f));
-    helpLabel.setText("Draw (b): click=note, drag=move, edge=length, dbl-click ribbon=curve diamond, "
-                      "ctrl-click=bend point, right-click=delete, Alt=fine, Shift+drag=select.   "
-                      "Select (s): box=select, Shift=add, Del=remove.   "
-                      "Zoom: +/- buttons, Ctrl+wheel (Ctrl+Shift+wheel = vertical).",
-                      juce::dontSendNotification);
-    addAndMakeVisible(helpLabel);
 
     refreshHostedUi();
     startTimerHz(10);
@@ -194,6 +184,59 @@ void MpePianoRollAudioProcessorEditor::refreshHostedUi()
                               juce::dontSendNotification);
 
     forwardMidiButton.setToggleState(processor.getForwardHostMidi(), juce::dontSendNotification);
+    syncPresetUi();
+}
+
+void MpePianoRollAudioProcessorEditor::syncPresetUi()
+{
+    auto* inst = processor.getHostedPlugin().getInstance();
+    const int count = inst != nullptr ? inst->getNumPrograms() : 0;
+    const bool hasList = inst != nullptr && count > 1;
+
+    presetPrevButton.setEnabled(hasList);
+    presetNextButton.setEnabled(hasList);
+    presetBrowseButton.setEnabled(inst != nullptr);
+
+    // rebuild the list only when the plugin or its program count changes
+    const juce::String key = inst != nullptr ? inst->getName() + "/" + juce::String(count) : juce::String();
+    if (key != presetSourceKey)
+    {
+        presetSourceKey = key;
+        presetItemCount = count;
+        presetBox.clear(juce::dontSendNotification);
+
+        if (hasList)
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                auto name = inst->getProgramName(i);
+                presetBox.addItem(name.isNotEmpty() ? name : ("Preset " + juce::String(i + 1)), i + 1);
+            }
+        }
+        presetBox.setTextWhenNothingSelected(inst == nullptr ? "no synth"
+                                             : hasList        ? "select preset"
+                                                              : inst->getName());
+    }
+
+    if (hasList)
+    {
+        const int cur = inst->getCurrentProgram() + 1;
+        if (presetBox.getSelectedId() != cur)
+            presetBox.setSelectedId(cur, juce::dontSendNotification);
+    }
+}
+
+void MpePianoRollAudioProcessorEditor::stepPreset(int delta)
+{
+    if (auto* inst = processor.getHostedPlugin().getInstance())
+    {
+        const int n = inst->getNumPrograms();
+        if (n > 1)
+        {
+            inst->setCurrentProgram(juce::jlimit(0, n - 1, inst->getCurrentProgram() + delta));
+            syncPresetUi();
+        }
+    }
 }
 
 void MpePianoRollAudioProcessorEditor::timerCallback()
@@ -238,17 +281,18 @@ void MpePianoRollAudioProcessorEditor::resized()
 
     auto toolbar = area.removeFromTop(30).reduced(6, 3);
 
-    drawButton.setBounds(toolbar.removeFromLeft(50));
-    toolbar.removeFromLeft(3);
-    selectButton.setBounds(toolbar.removeFromLeft(56));
-    toolbar.removeFromLeft(14);
+    // preset field (replaces the old Draw/Select buttons)
+    presetPrevButton.setBounds(toolbar.removeFromLeft(22));
+    toolbar.removeFromLeft(2);
+    presetBox.setBounds(toolbar.removeFromLeft(150));
+    toolbar.removeFromLeft(2);
+    presetNextButton.setBounds(toolbar.removeFromLeft(22));
+    toolbar.removeFromLeft(2);
+    presetBrowseButton.setBounds(toolbar.removeFromLeft(28));
+    toolbar.removeFromLeft(16);
 
-    // zoom controls on the far right of the toolbar
+    // zoom reset on the far right
     zoomResetButton.setBounds(toolbar.removeFromRight(40));
-    toolbar.removeFromRight(3);
-    zoomInButton.setBounds(toolbar.removeFromRight(28));
-    toolbar.removeFromRight(3);
-    zoomOutButton.setBounds(toolbar.removeFromRight(28));
     toolbar.removeFromRight(10);
 
     auto placeControl = [&toolbar](juce::Label& label, juce::Slider& slider, int labelWidth, int sliderWidth)
@@ -271,9 +315,7 @@ void MpePianoRollAudioProcessorEditor::resized()
     synthBar.removeFromLeft(10);
     hostedStatusLabel.setBounds(synthBar);
 
-    auto infoBar = area.removeFromTop(18).reduced(6, 1);
-    statusLabel.setBounds(infoBar.removeFromLeft(infoBar.getWidth() / 3));
-    helpLabel.setBounds(infoBar);
+    statusLabel.setBounds(area.removeFromTop(18).reduced(6, 1));
 
     rollViewport.setBounds(area);
     pianoRoll.updateContentSize();   // re-clamp zoom to the new viewport width

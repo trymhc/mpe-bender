@@ -23,6 +23,8 @@ private:
     void chooseHostedPlugin();
     void toggleHostedWindow();
     void refreshHostedUi();
+    void syncPresetUi();
+    void stepPreset(int delta);
 
     MpePianoRollAudioProcessor& processor;
     FlatLookAndFeel flatLnf;
@@ -30,10 +32,14 @@ private:
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;
 
-    juce::TextButton drawButton { "Draw" };
-    juce::TextButton selectButton { "Select" };
-    juce::TextButton zoomOutButton { "-" };
-    juce::TextButton zoomInButton { "+" };
+    // current-preset field (hosted plugin's program list, when it exposes one)
+    juce::TextButton presetPrevButton { "<" };
+    juce::TextButton presetNextButton { ">" };
+    juce::ComboBox   presetBox;
+    juce::TextButton presetBrowseButton { "..." };
+    int presetItemCount = -1;
+    juce::String presetSourceKey;
+
     juce::TextButton zoomResetButton { "1:1" };
 
     juce::Label loopLabel { {}, "Loop (bars)" };
@@ -52,7 +58,6 @@ private:
     std::unique_ptr<HostedPluginWindow> hostedWindow;
 
     juce::Label statusLabel;
-    juce::Label helpLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MpePianoRollAudioProcessorEditor)
 };
