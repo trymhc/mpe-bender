@@ -26,17 +26,34 @@ function Get-Sig {
 
 function Invoke-Build {
     Write-Host ("`n[{0}] building..." -f (Get-Date -Format HH:mm:ss)) -ForegroundColor Cyan
-    $out = & $cmake --build $build --config Release --target MpePianoRoll_VST3 2>&1
-    $ok  = ($LASTEXITCODE -eq 0)
-    $out | Select-String -Pattern 'error C\d|error LNK|error MSB|: error|FAILED|Bender\.vst3\\Contents' |
-        ForEach-Object { Write-Host "  $($_.Line.Trim())" }
-    if ($ok) {
-        Write-Host ("[{0}] OK - reload MPE Bender in FL" -f (Get-Date -Format HH:mm:ss)) -ForegroundColor Green
-        try { [console]::Beep(880,120) } catch {}
-    } else {
+
+    for ($attempt = 1; $attempt -le 40; $attempt++) {
+        $out = & $cmake --build $build --config Release --target MpePianoRoll_VST3 2>&1
+        $ok  = ($LASTEXITCODE -eq 0)
+
+        if ($ok) {
+            Write-Host ("[{0}] OK - reload MPE Bender in FL" -f (Get-Date -Format HH:mm:ss)) -ForegroundColor Green
+            try { [console]::Beep(880,120) } catch {}
+            return
+        }
+
+        # LNK1104 = the .vst3 is loaded in FL. Wait for it to be freed and retry.
+        if ($out -match 'LNK1104') {
+            if ($attempt -eq 1) {
+                Write-Host "  .vst3 is locked - remove MPE Bender from FL's rack; retrying..." -ForegroundColor Yellow
+            }
+            Start-Sleep -Seconds 3
+            continue
+        }
+
+        $out | Select-String -Pattern 'error C\d|error LNK|error MSB|: error|FAILED' |
+            ForEach-Object { Write-Host "  $($_.Line.Trim())" }
         Write-Host ("[{0}] BUILD FAILED" -f (Get-Date -Format HH:mm:ss)) -ForegroundColor Red
         try { [console]::Beep(220,300) } catch {}
+        return
     }
+
+    Write-Host ("[{0}] gave up waiting for the .vst3 to unlock" -f (Get-Date -Format HH:mm:ss)) -ForegroundColor Red
 }
 
 if (-not (Test-Path (Join-Path $build 'CMakeCache.txt'))) {
