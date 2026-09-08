@@ -1,17 +1,18 @@
 # MPE Bender
 
 A VST3 **instrument** for Windows that hosts **Serum 2** (or any VST3 synth) inside
-itself and drives it from a built‑in piano roll where **every note has its own
-pitch‑bend, pressure and timbre curve**. The per‑note expression is sent to the
-hosted synth as MPE (MIDI Polyphonic Expression), so bends are truly independent
-per note instead of one shared pitch‑bend for the whole track.
+itself and drives it from a built‑in piano roll where **each note carries its own
+pitch curve**. A note is drawn as a ribbon that follows base‑key + bend points
+across the keyboard, so it can start on one key and sweep to another. Each note is
+sent on its own MPE channel (MIDI Polyphonic Expression), so the bends are truly
+independent per note.
 
 ```
    ┌─────────────────────────  MPE Bender (VST3 instrument)  ─────────────────────────┐
-   │  piano roll + bend/pressure/timbre lanes                                         │
+   │  piano roll — notes ARE their own pitch curves (base key + bend points)          │
    │              │                                                                  │
    │              ▼                                                                   │
-   │   MpeEngine ──► MPE MIDI (note + per‑channel pitch bend / CC74 / pressure)       │
+   │   MpeEngine ──► MPE MIDI (note-on/off + per-note pitch bend)                     │
    │              │                                                                   │
    │              ▼                                                                   │
    │        hosted Serum 2  ──►  audio  ──────────────────────────────────► DAW out   │
@@ -51,8 +52,13 @@ It shows up as a **Synth**. Re-run `install.ps1` after each rebuild.
 3. Click **Open synth UI** to show Serum's own window. In Serum 2, **turn on MPE**
    and set its pitch‑bend range to match the **PB Range** slider here (default 48
    semitones).
-4. Draw notes in the piano roll. Select a note, then draw points in the
-   **Pitch Bend** lane (semitone offset), **Pressure**, or **Timbre** lane.
+4. Draw notes in the piano roll:
+   - **click** empty grid = new note; **drag body** = move; **drag right edge** = length
+   - **double‑click a note** = add a bend point on it
+   - **drag a point** = bend in time + pitch (hold **Shift** for fine / no snap)
+   - **right‑click** a point = remove it; **right‑click** the note body = delete the note
+   A note with points on different keys is drawn (and heard) sweeping between them,
+   overlapping whatever notes lie on the rows in between.
 5. Press play in FL. The plugin loops its own pattern (**Loop (beats)** slider),
    synced to the host tempo/position, and plays Serum with the per‑note bends.
 
@@ -73,11 +79,10 @@ keyboard straight through to Serum, so you can still play it normally.
 
 | File | Role |
 |------|------|
-| `Source/NoteModel.h` | `MpeNote` + `ExpressionCurve` (breakpoint envelopes) |
-| `Source/MpeEngine.*` | notes + curves → MPE MIDI, member‑channel allocation |
+| `Source/NoteModel.h` | `MpeNote` (base key + `bend` curve) + `ExpressionCurve` |
+| `Source/MpeEngine.*` | notes → MPE MIDI (note-on/off + per-note pitch bend), channel allocation |
 | `Source/HostedPlugin.*` | load / prepare / run a VST3 instance (Serum 2) |
 | `Source/HostedPluginWindow.h` | floating window for the hosted synth's editor |
 | `Source/PluginProcessor.*` | transport, loop playback, state, wiring |
 | `Source/PluginEditor.*` | toolbar + hosted‑synth controls |
-| `Source/PianoRollComponent.*` | the note grid |
-| `Source/CurveLaneComponent.*` | one expression lane (bend / pressure / timbre) |
+| `Source/PianoRollComponent.*` | the note grid; notes drawn/edited as pitch ribbons |
