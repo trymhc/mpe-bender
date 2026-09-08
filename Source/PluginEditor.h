@@ -28,6 +28,9 @@ private:
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;
 
+    juce::TextButton drawButton { "Draw" };
+    juce::TextButton selectButton { "Select" };
+
     juce::Label loopLabel { {}, "Loop (beats)" };
     juce::Slider loopLengthSlider;
     juce::Label pbRangeLabel { {}, "PB Range (st)" };

@@ -11,6 +11,22 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     rollViewport.setScrollBarsShown(true, true);
     addAndMakeVisible(rollViewport);
 
+    // Draw / Select tool toggle (like FL's piano roll)
+    for (auto* b : { &drawButton, &selectButton })
+    {
+        b->setClickingTogglesState(true);
+        b->setRadioGroupId(1001);
+        addAndMakeVisible(*b);
+    }
+    drawButton.setToggleState(true, juce::dontSendNotification);
+    drawButton.onClick   = [this] { pianoRoll.setTool(PianoRollComponent::Tool::draw); };
+    selectButton.onClick = [this] { pianoRoll.setTool(PianoRollComponent::Tool::select); };
+    pianoRoll.onToolChanged = [this](PianoRollComponent::Tool t)
+    {
+        auto& b = (t == PianoRollComponent::Tool::select ? selectButton : drawButton);
+        b.setToggleState(true, juce::dontSendNotification);
+    };
+
     auto setupSlider = [this](juce::Slider& s, juce::Label& label, double min, double max, double value, double step)
     {
         s.setRange(min, max, step);
@@ -72,9 +88,9 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     helpLabel.setJustificationType(juce::Justification::centredRight);
     helpLabel.setFont(11.0f);
     helpLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.5f));
-    helpLabel.setText("click empty: add note   -   drag body: move   -   drag edge: length   -   "
-                      "ctrl-click ribbon: add bend point   -   drag point: bend   -   "
-                      "dbl-click point: remove   -   drag diamond: curve   -   right-click: delete",
+    helpLabel.setText("Draw (b): click=note, drag=move, edge=length, dbl/ctrl-click ribbon=add point, "
+                      "drag point=bend, drag diamond=curve, right-click=delete.   "
+                      "Select (s): box-drag=select, shift=add, Del=remove.",
                       juce::dontSendNotification);
     addAndMakeVisible(helpLabel);
 
@@ -209,6 +225,11 @@ void MpePianoRollAudioProcessorEditor::resized()
 
     auto toolbar = area.removeFromTop(30).reduced(6, 3);
 
+    drawButton.setBounds(toolbar.removeFromLeft(50));
+    toolbar.removeFromLeft(3);
+    selectButton.setBounds(toolbar.removeFromLeft(56));
+    toolbar.removeFromLeft(14);
+
     auto placeControl = [&toolbar](juce::Label& label, juce::Slider& slider, int labelWidth, int sliderWidth)
     {
         label.setBounds(toolbar.removeFromLeft(labelWidth));
@@ -216,9 +237,9 @@ void MpePianoRollAudioProcessorEditor::resized()
         toolbar.removeFromLeft(12);
     };
 
-    placeControl(loopLabel, loopLengthSlider, 80, 130);
-    placeControl(pbRangeLabel, pbRangeSlider, 84, 130);
-    placeControl(channelsLabel, channelsSlider, 90, 120);
+    placeControl(loopLabel, loopLengthSlider, 78, 120);
+    placeControl(pbRangeLabel, pbRangeSlider, 82, 118);
+    placeControl(channelsLabel, channelsSlider, 88, 110);
 
     auto synthBar = area.removeFromTop(28).reduced(6, 2);
     loadHostedButton.setBounds(synthBar.removeFromLeft(120));
