@@ -274,6 +274,24 @@ void PianoRollComponent::paint(juce::Graphics& g)
             }
         }
     }
+    else if (selection.size() > 1)
+    {
+        // multi-selection: mark each note's end point so the group resize handle is visible
+        for (auto& n : snapshot)
+        {
+            if (! isSelected(n.id))
+                continue;
+            const int li = n.bend.lastIndex();
+            if (li <= 0)
+                continue;
+            auto x = xForBeat(n.endBeat());
+            auto y = yForPitch((float) n.pitch + n.bend.getPoints()[(size_t) li].value);
+            g.setColour(juce::Colours::white.withAlpha(0.9f));
+            g.fillEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f);
+            g.setColour(juce::Colours::black.withAlpha(0.6f));
+            g.drawEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f, 1.0f);
+        }
+    }
 
     if (dragMode == DragMode::marquee)
     {
@@ -328,11 +346,31 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
             const int last = n.bend.lastIndex();
             if (last <= 0 || ! nearRightEdge(n, pos))
                 return false;
-            selectOnly(n.id);
-            dragMode = DragMode::movePoint;
-            dragNoteId = n.id;
-            dragPointIndex = last;
-            dragPointIsAnchor = n.bend.isAnchor(last);
+
+            if (isSelected(n.id) && selection.size() > 1)
+            {
+                // group resize: drag every selected note's end anchor together
+                dragMode = DragMode::resizeEnds;
+                dragAnchorBeat = beatForX(pos.x);
+                dragAnchorPitch = pitchForY(pos.y);
+                endOrigins.clear();
+                for (auto& m : snap)
+                {
+                    if (! isSelected(m.id))
+                        continue;
+                    const int li = m.bend.lastIndex();
+                    endOrigins.push_back({ m.id, m.lengthBeats,
+                                           li > 0 ? m.bend.getPoints()[(size_t) li].value : 0.0f });
+                }
+            }
+            else
+            {
+                selectOnly(n.id);
+                dragMode = DragMode::movePoint;
+                dragNoteId = n.id;
+                dragPointIndex = last;
+                dragPointIsAnchor = n.bend.isAnchor(last);
+            }
             repaint();
             return true;
         };
@@ -516,6 +554,26 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
             return;
         }
 
+        if (dragMode == DragMode::resizeEnds)
+        {
+            const double dBeat  = snapDelta(beatForX(pos.x) - dragAnchorBeat, fine);
+            const float  dSemis = fine ? (pitchForY(pos.y) - dragAnchorPitch)
+                                       : std::round(pitchForY(pos.y) - dragAnchorPitch);
+            for (auto& o : endOrigins)
+                for (auto& n : notes)
+                    if (n.id == o.id)
+                    {
+                        const int li = n.bend.lastIndex();
+                        const double minLen = juce::jmax(0.25, n.bend.beatBefore(li) + 0.0625);
+                        const double newLen = juce::jmax(minLen, o.lengthBeats + dBeat);
+                        const float  newEnd = juce::jlimit(-range, range, o.endValue + dSemis);
+                        n.bend.movePoint(li, newLen, newEnd);
+                        n.lengthBeats = newLen;
+                        break;
+                    }
+            return;
+        }
+
         for (auto& n : notes)
         {
             if (n.id != dragNoteId)
@@ -557,6 +615,7 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent&)
     dragMode = DragMode::none;
     dragPointIndex = -1;
     dragOrigins.clear();
+    endOrigins.clear();
     preMarqueeSelection.clear();
 }
 

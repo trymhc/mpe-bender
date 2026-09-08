@@ -39,7 +39,7 @@ public:
 private:
     void timerCallback() override { repaint(); }
 
-    enum class DragMode { none, marquee, moveNotes, movePoint };
+    enum class DragMode { none, marquee, moveNotes, movePoint, resizeEnds };
 
     float yForPitch(float pitch) const
     {
@@ -105,6 +105,8 @@ private:
     float dragAnchorPitch = 60.0f;
     struct NoteOrigin { juce::Uuid id; double startBeat = 0.0; int pitch = 60; };
     std::vector<NoteOrigin> dragOrigins;
+    struct EndOrigin { juce::Uuid id; double lengthBeats = 1.0; float endValue = 0.0f; };
+    std::vector<EndOrigin> endOrigins;
 
     static constexpr int lowestPitch = 24;   // C1
     static constexpr int highestPitch = 96;  // C7
