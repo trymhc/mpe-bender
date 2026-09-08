@@ -13,7 +13,7 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     a.pitch = 60;
     a.bend.addPoint(1.0, 2.0f);
     a.bend.addPoint(2.0, 2.0f);
-    a.bend.setTension(0, -0.5f);   // curved scoop up into the first point
+    a.bend.addPoint(0.5, 0.4f, false);   // a shaper diamond -> curved scoop into the bend
     notes.push_back(a);
 
     MpeNote b;
@@ -312,8 +312,8 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
                     juce::ValueTree pt("Pt");
                     pt.setProperty("beat", p.beat, nullptr);
                     pt.setProperty("value", p.value, nullptr);
-                    if (p.tension != 0.0f)
-                        pt.setProperty("tension", p.tension, nullptr);
+                    if (! p.anchor)
+                        pt.setProperty("shaper", 1, nullptr);
                     ct.appendChild(pt, nullptr);
                 }
                 return ct;
@@ -365,12 +365,30 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
             if (! ct.isValid())
                 return;
             curve.clearAndReset();
+
+            struct Loaded { double beat; float value; float tension; bool shaper; };
+            std::vector<Loaded> in;
             for (int p = 0; p < ct.getNumChildren(); ++p)
             {
                 auto pt = ct.getChild(p);
-                curve.setPoint((double) pt.getProperty("beat", 0.0),
+                in.push_back({ (double) pt.getProperty("beat", 0.0),
                                (float) (double) pt.getProperty("value", 0.0),
-                               (float) (double) pt.getProperty("tension", 0.0));
+                               (float) (double) pt.getProperty("tension", 0.0),
+                               (bool) pt.getProperty("shaper", false) });
+            }
+
+            for (auto& l : in)
+                curve.setPoint(l.beat, l.value, ! l.shaper);
+
+            // migrate the pre-0.5 per-segment "tension" scalar to a shaper diamond
+            for (size_t k = 0; k + 1 < in.size(); ++k)
+            {
+                if (std::abs(in[k].tension) < 1.0e-4f)
+                    continue;
+                const double mb = 0.5 * (in[k].beat + in[k + 1].beat);
+                const float  w  = applyTension(0.5f, in[k].tension);
+                const float  mv = in[k].value + w * (in[k + 1].value - in[k].value);
+                curve.addPoint(mb, mv, false);
             }
         };
 

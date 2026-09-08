@@ -5,90 +5,73 @@
 #include <algorithm>
 #include <cmath>
 
-// A single breakpoint in a note's pitch curve.
+// A node in a note's pitch curve. `anchor` nodes are the structural bend points
+// (drawn as circles, land on semitones); non-anchor nodes are curve shapers
+// (drawn as diamonds) that bow the curve between two anchors. Any number of
+// shapers may sit between two anchors.
 struct CurvePoint
 {
     double beat = 0.0;    // position relative to the note's start, in beats
-    float value = 0.0f;   // semitone offset from the note's base pitch (may be fractional / negative)
-    float tension = 0.0f; // -1..+1 curve of the segment leaving this point; 0 = straight line
+    float value = 0.0f;   // semitone offset from the note's base pitch
+    bool anchor = true;
 };
 
-// Ease `t` (0..1) through a single-curvature "tension" bend, FL-automation style.
-// tension > 0 : ease-in  (slow start, fast finish)
-// tension < 0 : ease-out (fast start, slow finish)
+// Kept only for migrating pre-0.5 saved state (per-segment "tension" scalar).
 inline float applyTension(float t, float tension)
 {
     t = std::min(1.0f, std::max(0.0f, t));
-    if (tension > 1.0e-4f)
-        return std::pow(t, 1.0f + tension * 3.0f);
-    if (tension < -1.0e-4f)
-        return 1.0f - std::pow(1.0f - t, 1.0f - tension * 3.0f);
+    if (tension > 1.0e-4f)  return std::pow(t, 1.0f + tension * 3.0f);
+    if (tension < -1.0e-4f) return 1.0f - std::pow(1.0f - t, 1.0f - tension * 3.0f);
     return t;
 }
 
-// Given a normalised curve position `w` (0..1) that the segment should pass through
-// at its time-midpoint, return the tension that produces it. Inverse of
-// applyTension(0.5, tension).
-inline float tensionForMidpoint(float w)
-{
-    w = std::min(0.999f, std::max(0.001f, w));
-    const float l = std::log(0.5f);
-    if (w <= 0.5f)
-        return juce::jlimit(-1.0f, 1.0f, ((std::log(w) / l) - 1.0f) / 3.0f);
-    return juce::jlimit(-1.0f, 1.0f, (1.0f - (std::log(1.0f - w) / l)) / 3.0f);
-}
-
-// A breakpoint envelope sampled over the lifetime of a note. Segments interpolate
-// linearly unless the left point carries a tension; holds the end values beyond
-// the first / last point.
+// A pitch envelope over the life of a note: straight between adjacent anchors,
+// a Catmull-Rom spline through any run of anchor -> shapers... -> anchor.
 class ExpressionCurve
 {
 public:
     explicit ExpressionCurve(float defaultValue = 0.0f) : defaultVal(defaultValue)
     {
-        points.push_back({ 0.0, defaultValue });
+        points.push_back({ 0.0, defaultValue, true });
     }
 
     float defaultValue() const { return defaultVal; }
-
     const std::vector<CurvePoint>& getPoints() const { return points; }
     int size() const { return (int) points.size(); }
-    const CurvePoint& getPoint(int i) const { return points[(size_t) i]; }
 
     void clearAndReset()
     {
         points.clear();
-        points.push_back({ 0.0, defaultVal });
+        points.push_back({ 0.0, defaultVal, true });
     }
 
-    // Insert a new point, keeping the list sorted by beat. Returns its index.
-    int addPoint(double beat, float value)
+    // Insert a node, keeping the list sorted by beat. Returns its index.
+    int addPoint(double beat, float value, bool anchor = true)
     {
-        CurvePoint p { std::max(0.0, beat), value };
+        CurvePoint p { std::max(0.0, beat), value, anchor };
         auto insertAt = std::upper_bound(points.begin(), points.end(), p,
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
         auto it = points.insert(insertAt, p);
         return (int) std::distance(points.begin(), it);
     }
 
-    // Move an existing point in time and value, re-sorting. Point 0 is the note's
-    // start anchor - its beat is pinned to 0, only its value moves. Returns the
-    // point's new index.
+    // Move node `index` in time + value, re-sorting. Node 0 is the note's start
+    // anchor: its beat is pinned to 0. Keeps the node's anchor/shaper kind.
     int movePoint(int index, double beat, float value)
     {
         if (index < 0 || index >= (int) points.size())
             return index;
-
         if (index == 0)
             beat = 0.0;
 
-        const float keepTension = points[(size_t) index].tension;
-        points[(size_t) index] = { std::max(0.0, beat), value, keepTension };
+        const bool keepAnchor = points[(size_t) index].anchor;
+        const double nb = std::max(0.0, beat);
+        points[(size_t) index] = { nb, value, keepAnchor };
         std::stable_sort(points.begin(), points.end(),
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
 
         for (int i = 0; i < (int) points.size(); ++i)
-            if (points[(size_t) i].beat == std::max(0.0, beat) && points[(size_t) i].value == value)
+            if (points[(size_t) i].beat == nb && points[(size_t) i].value == value)
                 return i;
         return index;
     }
@@ -101,32 +84,21 @@ public:
             points.erase(points.begin() + index);
     }
 
-    void setTension(int index, float tension)
+    bool isAnchor(int index) const
     {
-        if (index >= 0 && index < (int) points.size())
-            points[(size_t) index].tension = juce::jlimit(-1.0f, 1.0f, tension);
+        return index >= 0 && index < (int) points.size() && points[(size_t) index].anchor;
     }
 
-    // Legacy helpers still used when building demo content / loading old state.
-    void setPoint(double beat, float value)
-    {
-        beat = std::max(0.0, beat);
-        for (auto& p : points)
-            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; return; }
-        addPoint(beat, value);
-    }
-
-    // Used when restoring saved state.
-    void setPoint(double beat, float value, float tension)
+    // legacy loaders
+    void setPoint(double beat, float value) { setPoint(beat, value, true); }
+    void setPoint(double beat, float value, bool anchor)
     {
         beat = std::max(0.0, beat);
         for (auto& p : points)
-            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; p.tension = tension; return; }
-        const int idx = addPoint(beat, value);
-        points[(size_t) idx].tension = tension;
+            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; p.anchor = anchor; return; }
+        addPoint(beat, value, anchor);
     }
 
-    // Sample the curve at a beat offset from the note's start.
     float sample(double beat) const
     {
         if (points.empty())
@@ -136,19 +108,38 @@ public:
         if (beat >= points.back().beat)
             return points.back().value;
 
-        for (size_t i = 0; i + 1 < points.size(); ++i)
-        {
-            const auto& a = points[i];
-            const auto& b = points[i + 1];
-            if (beat >= a.beat && beat <= b.beat)
-            {
-                if (b.beat - a.beat < 1.0e-9)
-                    return b.value;
-                auto t = (float) ((beat - a.beat) / (b.beat - a.beat));
-                return a.value + applyTension(t, a.tension) * (b.value - a.value);
-            }
-        }
-        return points.back().value;
+        size_t i = 0;
+        while (i + 1 < points.size() && points[i + 1].beat <= beat)
+            ++i;
+        if (i + 1 >= points.size())
+            return points.back().value;
+
+        const auto& L = points[i];
+        const auto& R = points[i + 1];
+        const double span = R.beat - L.beat;
+        const float t = span < 1.0e-9 ? 0.0f : (float) ((beat - L.beat) / span);
+
+        if (L.anchor && R.anchor)
+            return L.value + t * (R.value - L.value);
+
+        // curved run: widen [a..b] so both ends are anchors (or the list ends)
+        int a = (int) i;
+        while (a > 0 && ! points[(size_t) a].anchor) --a;
+        int b = (int) i + 1;
+        while (b < (int) points.size() - 1 && ! points[(size_t) b].anchor) ++b;
+
+        auto V = [&](int idx) { return points[(size_t) juce::jlimit(a, b, idx)].value; };
+        const float p0 = V((int) i - 1);
+        const float p1 = V((int) i);
+        const float p2 = V((int) i + 1);
+        const float p3 = V((int) i + 2);
+        const float t2 = t * t;
+        const float t3 = t2 * t;
+
+        return 0.5f * ((2.0f * p1)
+                     + (-p0 + p2) * t
+                     + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2
+                     + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
     }
 
 private:
@@ -165,13 +156,12 @@ struct MpeNote
 
     double startBeat = 0.0;
     double lengthBeats = 1.0;
-    int pitch = 60;           // MIDI note number the note's first point sits on
-    float velocity = 0.8f;    // note-on velocity, 0..1
+    int pitch = 60;
+    float velocity = 0.8f;
     float releaseVelocity = 0.5f;
 
-    ExpressionCurve bend { 0.0f };   // semitone offset from `pitch` over the note
+    ExpressionCurve bend { 0.0f };
 
-    // Runtime-only playback state, not persisted.
     int assignedChannel = -1;
     bool isSounding = false;
 
@@ -182,15 +172,6 @@ struct MpeNote
         return beat >= startBeat && beat < endBeat();
     }
 
-    // Semitone offset (relative to `pitch`) at an absolute beat position.
-    float bendAtAbsBeat(double absBeat) const
-    {
-        return bend.sample(absBeat - startBeat);
-    }
-
-    // Fractional MIDI pitch at an absolute beat position.
-    float pitchAtAbsBeat(double absBeat) const
-    {
-        return (float) pitch + bendAtAbsBeat(absBeat);
-    }
+    float bendAtAbsBeat(double absBeat) const { return bend.sample(absBeat - startBeat); }
+    float pitchAtAbsBeat(double absBeat) const { return (float) pitch + bendAtAbsBeat(absBeat); }
 };

@@ -16,7 +16,7 @@ bool PianoRollComponent::isBlackKey(int pitch) const
 }
 
 // ---------------------------------------------------------------------------
-//  Geometry helpers
+//  Geometry
 // ---------------------------------------------------------------------------
 
 void PianoRollComponent::buildNotePath(const MpeNote& note, juce::Path& path) const
@@ -37,62 +37,13 @@ void PianoRollComponent::buildNotePath(const MpeNote& note, juce::Path& path) co
 
 juce::Range<float> PianoRollComponent::pitchExtent(const MpeNote& note) const
 {
-    float lo = (float) note.pitch;
-    float hi = (float) note.pitch;
+    float lo = (float) note.pitch, hi = (float) note.pitch;
     for (auto& p : note.bend.getPoints())
     {
         lo = juce::jmin(lo, (float) note.pitch + p.value);
         hi = juce::jmax(hi, (float) note.pitch + p.value);
     }
     return { lo, hi };
-}
-
-juce::Point<float> PianoRollComponent::tensionHandlePos(const MpeNote& note, int i) const
-{
-    const auto& pts = note.bend.getPoints();
-    if (i < 0 || i + 1 >= (int) pts.size())
-        return {};
-
-    const double b0 = juce::jlimit(0.0, note.lengthBeats, pts[(size_t) i].beat);
-    const double b1 = juce::jlimit(0.0, note.lengthBeats, pts[(size_t) (i + 1)].beat);
-    const double bm = 0.5 * (b0 + b1);
-
-    return { xForBeat(note.startBeat + bm),
-             yForPitch((float) note.pitch + note.bend.sample(bm)) };
-}
-
-int PianoRollComponent::tensionHandleAt(const MpeNote& note, juce::Point<float> pos) const
-{
-    const auto& pts = note.bend.getPoints();
-    for (int i = 0; i + 1 < (int) pts.size(); ++i)
-    {
-        if (std::abs(pts[(size_t) (i + 1)].value - pts[(size_t) i].value) < 0.01f)
-            continue;
-        if (pos.getDistanceFrom(tensionHandlePos(note, i)) <= pointRadius + 3.0f)
-            return i;
-    }
-    return -1;
-}
-
-void PianoRollComponent::applyTensionDrag(MpeNote& note, int leftIndex, juce::Point<float> pos) const
-{
-    const auto& pts = note.bend.getPoints();
-    if (leftIndex < 0 || leftIndex + 1 >= (int) pts.size())
-        return;
-
-    const float v0 = pts[(size_t) leftIndex].value;
-    const float v1 = pts[(size_t) (leftIndex + 1)].value;
-    if (std::abs(v1 - v0) < 0.01f)
-        return;
-
-    const float mouseSemis = pitchForY(pos.y) - (float) note.pitch;
-    const float w = juce::jlimit(0.0f, 1.0f, (mouseSemis - v0) / (v1 - v0));
-
-    float tension = tensionForMidpoint(w);
-    if (std::abs(tension) < 0.06f)
-        tension = 0.0f;
-
-    note.bend.setTension(leftIndex, tension);
 }
 
 int PianoRollComponent::pointIndexAt(const MpeNote& note, juce::Point<float> pos) const
@@ -146,16 +97,11 @@ void PianoRollComponent::selectOnly(const juce::Uuid& id)
 void PianoRollComponent::toggleSelected(const juce::Uuid& id)
 {
     auto it = std::find(selection.begin(), selection.end(), id);
-    if (it != selection.end())
-        selection.erase(it);
-    else
-        selection.push_back(id);
+    if (it != selection.end()) selection.erase(it);
+    else                       selection.push_back(id);
 }
 
-void PianoRollComponent::clearSelection()
-{
-    selection.clear();
-}
+void PianoRollComponent::clearSelection() { selection.clear(); }
 
 juce::Uuid PianoRollComponent::soleSelection() const
 {
@@ -166,7 +112,6 @@ void PianoRollComponent::deleteSelected()
 {
     if (selection.empty())
         return;
-
     processor.modifyNotes([&](std::vector<MpeNote>& notes)
     {
         notes.erase(std::remove_if(notes.begin(), notes.end(),
@@ -191,15 +136,11 @@ void PianoRollComponent::updateMarquee(juce::Point<float> pos, const std::vector
 {
     marqueeB = pos;
 
-    const float x0 = juce::jmin(marqueeA.x, marqueeB.x);
-    const float x1 = juce::jmax(marqueeA.x, marqueeB.x);
-    const float y0 = juce::jmin(marqueeA.y, marqueeB.y);
-    const float y1 = juce::jmax(marqueeA.y, marqueeB.y);
+    const float x0 = juce::jmin(marqueeA.x, marqueeB.x), x1 = juce::jmax(marqueeA.x, marqueeB.x);
+    const float y0 = juce::jmin(marqueeA.y, marqueeB.y), y1 = juce::jmax(marqueeA.y, marqueeB.y);
 
-    const double bLo = beatForX(x0);
-    const double bHi = beatForX(x1);
-    const float  pLo = pitchForY(y1);
-    const float  pHi = pitchForY(y0);
+    const double bLo = beatForX(x0), bHi = beatForX(x1);
+    const float  pLo = pitchForY(y1), pHi = pitchForY(y0);
 
     selection = additive ? preMarqueeSelection : std::vector<juce::Uuid>{};
 
@@ -224,6 +165,7 @@ void PianoRollComponent::paint(juce::Graphics& g)
     g.fillAll(juce::Colour(0xff17171a));
 
     const auto loopLen = processor.getLoopLengthBeats();
+    const float h = (float) getHeight();
 
     for (int pitch = lowestPitch; pitch <= highestPitch; ++pitch)
     {
@@ -237,6 +179,8 @@ void PianoRollComponent::paint(juce::Graphics& g)
 
         if (pitch % 12 == 0)
         {
+            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.drawHorizontalLine((int) yTop, (float) keyboardWidth, (float) getWidth());
             g.setColour(juce::Colours::white.withAlpha(0.5f));
             g.setFont(9.0f);
             g.drawText("C" + juce::String(pitch / 12 - 1), 2, (int) yTop, keyboardWidth - 4, rowHeight,
@@ -244,12 +188,19 @@ void PianoRollComponent::paint(juce::Graphics& g)
         }
     }
 
-    g.setColour(juce::Colours::white.withAlpha(0.08f));
-    for (double beat = 0.0; beat <= loopLen + 0.001; beat += 1.0)
-        g.drawVerticalLine((int) xForBeat(beat), 0.0f, (float) getHeight());
+    // vertical grid: 1/4-beat, beat, bar
+    auto verticals = [&](double step, juce::Colour c)
+    {
+        g.setColour(c);
+        for (double b = 0.0; b <= loopLen + 1.0e-6; b += step)
+            g.drawVerticalLine((int) xForBeat(b), 0.0f, h);
+    };
+    verticals(0.25, juce::Colours::white.withAlpha(0.035f));
+    verticals(1.0,  juce::Colours::white.withAlpha(0.11f));
+    verticals(4.0,  juce::Colours::white.withAlpha(0.20f));
 
     g.setColour(juce::Colours::orange.withAlpha(0.5f));
-    g.drawVerticalLine((int) xForBeat(loopLen), 0.0f, (float) getHeight());
+    g.drawVerticalLine((int) xForBeat(loopLen), 0.0f, h);
 
     std::vector<MpeNote> snapshot;
     processor.readNotes([&](const std::vector<MpeNote>& notes) { snapshot = notes; });
@@ -271,14 +222,9 @@ void PianoRollComponent::paint(juce::Graphics& g)
                                              juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     };
 
-    for (auto& n : snapshot)
-        if (! isSelected(n.id))
-            drawNote(n, false);
-    for (auto& n : snapshot)
-        if (isSelected(n.id))
-            drawNote(n, true);
+    for (auto& n : snapshot) if (! isSelected(n.id)) drawNote(n, false);
+    for (auto& n : snapshot) if (isSelected(n.id))   drawNote(n, true);
 
-    // point + curve handles only when exactly one note is selected and we're drawing
     const auto sole = soleSelection();
     if (tool == Tool::draw && sole != juce::Uuid::null())
     {
@@ -288,41 +234,37 @@ void PianoRollComponent::paint(juce::Graphics& g)
                 continue;
 
             const auto& pts = n.bend.getPoints();
-
-            for (int i = 0; i + 1 < (int) pts.size(); ++i)
-            {
-                if (std::abs(pts[(size_t) (i + 1)].value - pts[(size_t) i].value) < 0.01f)
-                    continue;
-
-                auto c = tensionHandlePos(n, i);
-                const float r = pointRadius - 0.5f;
-                juce::Path diamond;
-                diamond.addQuadrilateral(c.x, c.y - r, c.x + r, c.y, c.x, c.y + r, c.x - r, c.y);
-
-                g.setColour((pts[(size_t) i].tension != 0.0f ? juce::Colour(0xffffd23f)
-                                                            : juce::Colours::white).withAlpha(0.9f));
-                g.fillPath(diamond);
-                g.setColour(juce::Colours::black.withAlpha(0.6f));
-                g.strokePath(diamond, juce::PathStrokeType(1.0f));
-            }
-
             for (int i = 0; i < (int) pts.size(); ++i)
             {
                 auto x = xForBeat(n.startBeat + juce::jlimit(0.0, n.lengthBeats, pts[(size_t) i].beat));
                 auto y = yForPitch((float) n.pitch + pts[(size_t) i].value);
 
-                g.setColour(juce::Colours::white);
-                g.fillEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f);
-                g.setColour(juce::Colours::black.withAlpha(0.6f));
-                g.drawEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f, 1.0f);
-
-                const float semis = pts[(size_t) i].value;
-                if (std::abs(semis) >= 0.5f)
+                if (pts[(size_t) i].anchor)
                 {
-                    g.setColour(juce::Colours::white.withAlpha(0.85f));
-                    g.setFont(10.0f);
-                    juce::String label = (semis > 0 ? "+" : "") + juce::String(semis, semis == std::round(semis) ? 0 : 1);
-                    g.drawText(label, (int) (x + 6.0f), (int) (y - 14.0f), 40, 12, juce::Justification::left);
+                    g.setColour(juce::Colours::white);
+                    g.fillEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f);
+                    g.setColour(juce::Colours::black.withAlpha(0.6f));
+                    g.drawEllipse(x - pointRadius, y - pointRadius, pointRadius * 2.0f, pointRadius * 2.0f, 1.0f);
+
+                    const float semis = pts[(size_t) i].value;
+                    if (std::abs(semis) >= 0.5f)
+                    {
+                        g.setColour(juce::Colours::white.withAlpha(0.85f));
+                        g.setFont(10.0f);
+                        juce::String label = (semis > 0 ? "+" : "")
+                                           + juce::String(semis, semis == std::round(semis) ? 0 : 1);
+                        g.drawText(label, (int) (x + 6.0f), (int) (y - 14.0f), 44, 12, juce::Justification::left);
+                    }
+                }
+                else
+                {
+                    const float r = pointRadius - 0.3f;
+                    juce::Path d;
+                    d.addQuadrilateral(x, y - r, x + r, y, x, y + r, x - r, y);
+                    g.setColour(juce::Colour(0xffffd23f).withAlpha(0.95f));
+                    g.fillPath(d);
+                    g.setColour(juce::Colours::black.withAlpha(0.6f));
+                    g.strokePath(d, juce::PathStrokeType(1.0f));
                 }
             }
         }
@@ -342,7 +284,7 @@ void PianoRollComponent::paint(juce::Graphics& g)
     {
         auto x = xForBeat(processor.getUiPlayheadBeat());
         g.setColour(juce::Colours::white.withAlpha(0.8f));
-        g.drawVerticalLine((int) x, 0.0f, (float) getHeight());
+        g.drawVerticalLine((int) x, 0.0f, h);
     }
 }
 
@@ -359,27 +301,26 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
         return;
 
     const bool rightClick = e.mods.isRightButtonDown();
-    const bool fine = e.mods.isShiftDown();
-    const bool addMod = e.mods.isCommandDown() && ! rightClick;   // Ctrl on Windows
+    const bool fine       = e.mods.isAltDown();
+    const bool addAnchor  = e.mods.isCommandDown() && ! rightClick;
+    const bool springSel  = tool == Tool::draw && e.mods.isShiftDown() && ! rightClick && ! addAnchor;
+    const bool selectMode = tool == Tool::select || springSel;
 
     std::vector<MpeNote> snap;
     processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
 
-    // ---- Draw tool: bend-point / curve editing on the sole-selected note ----
-    if (tool == Tool::draw)
-    {
-        const float range = (float) processor.getPitchBendRangeSemitones();
+    const float range = (float) processor.getPitchBendRangeSemitones();
 
-        // Ctrl+left-click a ribbon -> add a bend point and start dragging it
-        if (addMod)
+    // ---- Draw-tool point / diamond editing (only when NOT acting as select) ----
+    if (! selectMode)
+    {
+        if (addAnchor)
         {
             auto tryAdd = [&](const MpeNote& n) -> bool
             {
                 if (! ribbonHit(n, pos))
                     return false;
-
-                const double b = juce::jlimit(0.0, n.lengthBeats,
-                                              snapBeat(beatForX(pos.x) - n.startBeat, fine));
+                const double b = juce::jlimit(0.0, n.lengthBeats, snapBeat(beatForX(pos.x) - n.startBeat, fine));
                 float semis = pitchForY(pos.y) - (float) n.pitch;
                 if (! fine) semis = std::round(semis);
                 semis = juce::jlimit(-range, range, semis);
@@ -388,22 +329,21 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
                 processor.modifyNotes([&](std::vector<MpeNote>& notes)
                 {
                     for (auto& m : notes)
-                        if (m.id == n.id) { newIndex = m.bend.addPoint(b, semis); break; }
+                        if (m.id == n.id) { newIndex = m.bend.addPoint(b, semis, true); break; }
                 });
                 selectOnly(n.id);
                 dragMode = DragMode::movePoint;
                 dragNoteId = n.id;
                 dragPointIndex = newIndex;
+                dragPointIsAnchor = true;
                 repaint();
                 return true;
             };
-
             for (auto& n : snap) if (isSelected(n.id) && tryAdd(n)) return;
             for (auto it = snap.rbegin(); it != snap.rend(); ++it) if (! isSelected(it->id) && tryAdd(*it)) return;
             return;
         }
 
-        // bend point under the mouse
         auto tryPoint = [&](const MpeNote& n) -> bool
         {
             const int idx = pointIndexAt(n, pos);
@@ -425,6 +365,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
                 dragMode = DragMode::movePoint;
                 dragNoteId = n.id;
                 dragPointIndex = idx;
+                dragPointIsAnchor = n.bend.isAnchor(idx);
             }
             repaint();
             return true;
@@ -432,38 +373,9 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 
         for (auto& n : snap) if (isSelected(n.id) && tryPoint(n)) return;
         for (auto& n : snap) if (! isSelected(n.id) && tryPoint(n)) return;
-
-        // tension handle on a segment of the sole-selected note
-        if (soleSelection() != juce::Uuid::null())
-        {
-            for (auto& n : snap)
-            {
-                if (n.id != soleSelection())
-                    continue;
-
-                const int seg = tensionHandleAt(n, pos);
-                if (seg < 0)
-                    break;
-
-                if (rightClick)
-                    processor.modifyNotes([&](std::vector<MpeNote>& notes)
-                    {
-                        for (auto& m : notes)
-                            if (m.id == n.id) { m.bend.setTension(seg, 0.0f); break; }
-                    });
-                else
-                {
-                    dragMode = DragMode::moveTension;
-                    dragNoteId = n.id;
-                    dragPointIndex = seg;
-                }
-                repaint();
-                return;
-            }
-        }
     }
 
-    // ---- shared: note ribbon under the mouse ----
+    // ---- shared: note ribbon ----
     auto tryRibbon = [&](const MpeNote& n) -> bool
     {
         if (! ribbonHit(n, pos))
@@ -477,23 +389,25 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
                     [&](const MpeNote& m) { return m.id == n.id; }), notes.end());
             });
             auto it = std::find(selection.begin(), selection.end(), n.id);
-            if (it != selection.end())
-                selection.erase(it);
+            if (it != selection.end()) selection.erase(it);
             repaint();
             return true;
         }
 
-        if (fine)   // Shift: toggle this note in the selection, no drag
+        const bool addToSel = tool == Tool::select && e.mods.isShiftDown();
+
+        if (addToSel)
         {
             toggleSelected(n.id);
             repaint();
             return true;
         }
 
-        if (! isSelected(n.id))
-            selectOnly(n.id);
+        if (! isSelected(n.id) || selection.size() > 1)
+            if (! (selectMode && isSelected(n.id)))
+                selectOnly(n.id);
 
-        if (tool == Tool::draw && selection.size() == 1 && nearRightEdge(n, pos))
+        if (! selectMode && selection.size() == 1 && nearRightEdge(n, pos))
         {
             dragMode = DragMode::resizeRight;
             dragNoteId = n.id;
@@ -517,18 +431,18 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    if (tool == Tool::select)
+    if (selectMode)
     {
+        marqueeAdditive = tool == Tool::select && e.mods.isShiftDown();
         marqueeA = marqueeB = pos;
-        preMarqueeSelection = fine ? selection : std::vector<juce::Uuid>{};
-        if (! fine)
+        preMarqueeSelection = marqueeAdditive ? selection : std::vector<juce::Uuid>{};
+        if (! marqueeAdditive)
             selection.clear();
         dragMode = DragMode::marquee;
         repaint();
         return;
     }
 
-    // Draw tool on empty space: new note
     MpeNote n;
     n.startBeat = snapBeat(beatForX(pos.x), fine);
     n.lengthBeats = 1.0;
@@ -538,7 +452,6 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 
     processor.modifyNotes([&](std::vector<MpeNote>& notes) { notes.push_back(n); });
     selectOnly(id);
-
     snap.push_back(n);
     beginMoveNotes(pos, snap);
     repaint();
@@ -550,13 +463,13 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
         return;
 
     const auto pos = e.position;
-    const bool fine = e.mods.isShiftDown();
+    const bool fine = e.mods.isAltDown();
 
     if (dragMode == DragMode::marquee)
     {
         std::vector<MpeNote> snap;
         processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
-        updateMarquee(pos, snap, e.mods.isShiftDown());
+        updateMarquee(pos, snap, marqueeAdditive);
         repaint();
         return;
     }
@@ -569,7 +482,6 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
         {
             const double dBeat = snapDelta(beatForX(pos.x) - dragAnchorBeat, fine);
             const int dPitch = (int) std::round(pitchForY(pos.y) - dragAnchorPitch);
-
             for (auto& o : dragOrigins)
                 for (auto& n : notes)
                     if (n.id == o.id)
@@ -594,13 +506,10 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
             {
                 double b = juce::jlimit(0.0, n.lengthBeats, snapBeat(beatForX(pos.x) - n.startBeat, fine));
                 float semis = pitchForY(pos.y) - (float) n.pitch;
-                if (! fine) semis = std::round(semis);
+                if (! fine && dragPointIsAnchor)
+                    semis = std::round(semis);
                 semis = juce::jlimit(-range, range, semis);
                 dragPointIndex = n.bend.movePoint(dragPointIndex, b, semis);
-            }
-            else if (dragMode == DragMode::moveTension)
-            {
-                applyTensionDrag(n, dragPointIndex, pos);
             }
             break;
         }
@@ -620,41 +529,42 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent&)
 void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent& e)
 {
     const auto pos = e.position;
-    if (pos.x < (float) keyboardWidth || e.mods.isRightButtonDown() || tool != Tool::draw)
+    if (pos.x < (float) keyboardWidth || e.mods.isRightButtonDown() || tool != Tool::draw
+        || e.mods.isShiftDown())
         return;
 
     std::vector<MpeNote> snap;
     processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
 
-    // double-click on/near a note ribbon -> add a bend (curve) point there
-    auto tryAdd = [&](const MpeNote& n) -> bool
+    auto tryAddDiamond = [&](const MpeNote& n) -> bool
     {
-        if (pointIndexAt(n, pos) >= 0)   // not right on an existing point
+        if (pointIndexAt(n, pos) >= 0)
             return false;
         if (! ribbonHit(n, pos))
             return false;
 
         const double b = juce::jlimit(0.0, n.lengthBeats,
-                                      snapBeat(beatForX(pos.x) - n.startBeat, e.mods.isShiftDown()));
+                                      snapBeat(beatForX(pos.x) - n.startBeat, e.mods.isAltDown()));
         const float semis = n.bend.sample(b);
 
         int newIndex = -1;
         processor.modifyNotes([&](std::vector<MpeNote>& notes)
         {
             for (auto& m : notes)
-                if (m.id == n.id) { newIndex = m.bend.addPoint(b, semis); break; }
+                if (m.id == n.id) { newIndex = m.bend.addPoint(b, semis, false); break; }
         });
 
         selectOnly(n.id);
         dragMode = DragMode::movePoint;
         dragNoteId = n.id;
         dragPointIndex = newIndex;
+        dragPointIsAnchor = false;
         repaint();
         return true;
     };
 
-    for (auto& n : snap) if (isSelected(n.id) && tryAdd(n)) return;
-    for (auto it = snap.rbegin(); it != snap.rend(); ++it) if (! isSelected(it->id) && tryAdd(*it)) return;
+    for (auto& n : snap) if (isSelected(n.id) && tryAddDiamond(n)) return;
+    for (auto it = snap.rbegin(); it != snap.rend(); ++it) if (! isSelected(it->id) && tryAddDiamond(*it)) return;
 }
 
 bool PianoRollComponent::keyPressed(const juce::KeyPress& key)
@@ -670,17 +580,8 @@ bool PianoRollComponent::keyPressed(const juce::KeyPress& key)
         repaint();
         return true;
     }
-    if (key.getTextCharacter() == 'b' || key.getTextCharacter() == 'B')
-    {
-        setTool(Tool::draw);
-        if (onToolChanged) onToolChanged(Tool::draw);
-        return true;
-    }
-    if (key.getTextCharacter() == 's' || key.getTextCharacter() == 'S')
-    {
-        setTool(Tool::select);
-        if (onToolChanged) onToolChanged(Tool::select);
-        return true;
-    }
+    const auto c = key.getTextCharacter();
+    if (c == 'b' || c == 'B') { setTool(Tool::draw);   if (onToolChanged) onToolChanged(Tool::draw);   return true; }
+    if (c == 's' || c == 'S') { setTool(Tool::select); if (onToolChanged) onToolChanged(Tool::select); return true; }
     return false;
 }

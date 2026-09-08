@@ -3,17 +3,18 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
 #include <vector>
+#include <functional>
 
-// The note grid. Each note is a ribbon that follows its own pitch curve (base key
-// + bend points, with a per-segment curve handle) across the keyboard.
+// The note grid. Each note is a ribbon following its own pitch curve (base key +
+// bend points; extra "shaper" diamonds bow the curve between bend points).
 //
-// Two tools, like FL's piano roll:
-//   Draw   - click empty = new note; drag body = move; drag right edge = length;
-//            double-click / Ctrl-click the ribbon = add a bend point; drag a point
-//            = bend; drag a diamond = curve that segment; right-click = delete /
-//            straighten.
-//   Select - drag a box to marquee-select notes; drag any selected note to move the
-//            whole selection; Delete removes them. Shift adds to the selection.
+// Draw tool: click empty = new note; drag body = move; drag right edge = length;
+//   double-click ribbon = add a curve diamond; Ctrl+click ribbon = add a bend
+//   point; drag any point/diamond = shape; right-click = delete.
+//   Hold Shift while dragging = temporarily the Select tool (springs back on release).
+//   Hold Alt while dragging = fine / no snap.
+// Select tool: box-drag = marquee select (Shift adds); drag a selected note = move
+//   the whole selection; Delete removes; Esc clears.
 class PianoRollComponent final : public juce::Component, private juce::Timer
 {
 public:
@@ -38,9 +39,8 @@ public:
 private:
     void timerCallback() override { repaint(); }
 
-    enum class DragMode { none, marquee, moveNotes, resizeRight, movePoint, moveTension };
+    enum class DragMode { none, marquee, moveNotes, resizeRight, movePoint };
 
-    // --- coordinate mapping (y is the CENTRE of a key row) ---
     float yForPitch(float pitch) const
     {
         return (float) (highestPitch - pitch) * rowHeight + rowHeight * 0.5f;
@@ -73,20 +73,16 @@ private:
     bool isBlackKey(int pitch) const;
 
     int pointIndexAt(const MpeNote& note, juce::Point<float> pos) const;
-    int tensionHandleAt(const MpeNote& note, juce::Point<float> pos) const;
-    juce::Point<float> tensionHandlePos(const MpeNote& note, int i) const;
     bool ribbonHit(const MpeNote& note, juce::Point<float> pos) const;
     bool nearRightEdge(const MpeNote& note, juce::Point<float> pos) const;
-    void applyTensionDrag(MpeNote& note, int leftIndex, juce::Point<float> pos) const;
     void buildNotePath(const MpeNote& note, juce::Path& path) const;
     juce::Range<float> pitchExtent(const MpeNote& note) const;
 
-    // --- selection ---
     bool isSelected(const juce::Uuid& id) const;
     void selectOnly(const juce::Uuid& id);
     void toggleSelected(const juce::Uuid& id);
     void clearSelection();
-    juce::Uuid soleSelection() const;      // the id iff exactly one note is selected
+    juce::Uuid soleSelection() const;
     void deleteSelected();
     void beginMoveNotes(juce::Point<float> pos, const std::vector<MpeNote>& snapshot);
     void updateMarquee(juce::Point<float> pos, const std::vector<MpeNote>& snapshot, bool additive);
@@ -99,9 +95,11 @@ private:
     DragMode dragMode = DragMode::none;
     juce::Uuid dragNoteId;
     int dragPointIndex = -1;
+    bool dragPointIsAnchor = true;
 
     juce::Point<float> marqueeA, marqueeB;
     std::vector<juce::Uuid> preMarqueeSelection;
+    bool marqueeAdditive = false;
 
     double dragAnchorBeat = 0.0;
     float dragAnchorPitch = 60.0f;
