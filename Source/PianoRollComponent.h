@@ -39,8 +39,15 @@ public:
     // Zoom. `anchor` is a point in this component's coords kept stationary on screen.
     void zoomHorizontal(float factor, float anchorX);
     void zoomVertical(float factor, float anchorY);
+    void zoomHorizontalCentred(float factor);
+    void zoomVerticalCentred(float factor);
     void resetZoom();
     void updateContentSize();   // call after the loop length changes
+
+    bool hasSoleSelection() const { return selection.size() == 1; }
+    // Add (delta>0) or remove (delta<0) one curve diamond per bend-point segment
+    // of the currently selected note.
+    void adjustDiamondDensity(int delta);
 
 private:
     void timerCallback() override { repaint(); }
@@ -111,6 +118,8 @@ private:
     float dragAnchorPitch = 60.0f;
     struct NoteOrigin { juce::Uuid id; double startBeat = 0.0; int pitch = 60; };
     std::vector<NoteOrigin> dragOrigins;
+
+    double lastNoteLength = 1.0;   // new notes inherit the last resized note's length
     struct EndOrigin { juce::Uuid id; double lengthBeats = 1.0; float endValue = 0.0f; };
     std::vector<EndOrigin> endOrigins;
 

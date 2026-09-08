@@ -7,37 +7,28 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
 
     setResizable(true, true);
     setSize(960, 640);
-    setResizeLimits(600, 360, 2400, 1600);
+    setResizeLimits(880, 360, 2400, 1600);
 
     rollViewport.setViewedComponent(&pianoRoll, false);
     rollViewport.setScrollBarsShown(true, true);
     addAndMakeVisible(rollViewport);
 
-    // current-preset field (name of the hosted synth's current program, if it has one)
-    addAndMakeVisible(presetPrevButton);
-    addAndMakeVisible(presetNextButton);
-    addAndMakeVisible(presetBrowseButton);
-    addAndMakeVisible(presetBox);
-    presetBox.setJustificationType(juce::Justification::centredLeft);
-    presetBox.setTextWhenNothingSelected("no synth");
-    presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1c1c1c));
-    presetBox.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
-    presetBox.setColour(juce::ComboBox::textColourId, juce::Colours::white.withAlpha(0.9f));
-    presetBox.setColour(juce::ComboBox::arrowColourId, juce::Colours::white.withAlpha(0.55f));
-    presetPrevButton.onClick   = [this] { stepPreset(-1); };
-    presetNextButton.onClick   = [this] { stepPreset(+1); };
-    presetBrowseButton.onClick = [this] { toggleHostedWindow(); };   // Serum's own browser
-    presetBox.onChange = [this]
-    {
-        if (auto* inst = processor.getHostedPlugin().getInstance())
-        {
-            const int id = presetBox.getSelectedId();
-            if (id > 0 && id - 1 != inst->getCurrentProgram())
-                inst->setCurrentProgram(id - 1);
-        }
-    };
+    // curve-diamond density for the selected note
+    curveLabel.setJustificationType(juce::Justification::centredRight);
+    curveLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
+    addAndMakeVisible(curveLabel);
+    addAndMakeVisible(curveLessButton);
+    addAndMakeVisible(curveMoreButton);
+    curveLessButton.onClick = [this] { pianoRoll.adjustDiamondDensity(-1); };
+    curveMoreButton.onClick = [this] { pianoRoll.adjustDiamondDensity(+1); };
 
-    addAndMakeVisible(zoomResetButton);
+    // zoom
+    for (auto* b : { &zoomHOutButton, &zoomHInButton, &zoomVOutButton, &zoomVInButton, &zoomResetButton })
+        addAndMakeVisible(*b);
+    zoomHOutButton.onClick  = [this] { pianoRoll.zoomHorizontalCentred(1.0f / 1.3f); };
+    zoomHInButton.onClick   = [this] { pianoRoll.zoomHorizontalCentred(1.3f); };
+    zoomVOutButton.onClick  = [this] { pianoRoll.zoomVerticalCentred(1.0f / 1.3f); };
+    zoomVInButton.onClick   = [this] { pianoRoll.zoomVerticalCentred(1.3f); };
     zoomResetButton.onClick = [this] { pianoRoll.resetZoom(); };
 
     auto setupSlider = [this](juce::Slider& s, juce::Label& label, double min, double max, double value, double step)
@@ -184,59 +175,6 @@ void MpePianoRollAudioProcessorEditor::refreshHostedUi()
                               juce::dontSendNotification);
 
     forwardMidiButton.setToggleState(processor.getForwardHostMidi(), juce::dontSendNotification);
-    syncPresetUi();
-}
-
-void MpePianoRollAudioProcessorEditor::syncPresetUi()
-{
-    auto* inst = processor.getHostedPlugin().getInstance();
-    const int count = inst != nullptr ? inst->getNumPrograms() : 0;
-    const bool hasList = inst != nullptr && count > 1;
-
-    presetPrevButton.setEnabled(hasList);
-    presetNextButton.setEnabled(hasList);
-    presetBrowseButton.setEnabled(inst != nullptr);
-
-    // rebuild the list only when the plugin or its program count changes
-    const juce::String key = inst != nullptr ? inst->getName() + "/" + juce::String(count) : juce::String();
-    if (key != presetSourceKey)
-    {
-        presetSourceKey = key;
-        presetItemCount = count;
-        presetBox.clear(juce::dontSendNotification);
-
-        if (hasList)
-        {
-            for (int i = 0; i < count; ++i)
-            {
-                auto name = inst->getProgramName(i);
-                presetBox.addItem(name.isNotEmpty() ? name : ("Preset " + juce::String(i + 1)), i + 1);
-            }
-        }
-        presetBox.setTextWhenNothingSelected(inst == nullptr ? "no synth"
-                                             : hasList        ? "select preset"
-                                                              : inst->getName());
-    }
-
-    if (hasList)
-    {
-        const int cur = inst->getCurrentProgram() + 1;
-        if (presetBox.getSelectedId() != cur)
-            presetBox.setSelectedId(cur, juce::dontSendNotification);
-    }
-}
-
-void MpePianoRollAudioProcessorEditor::stepPreset(int delta)
-{
-    if (auto* inst = processor.getHostedPlugin().getInstance())
-    {
-        const int n = inst->getNumPrograms();
-        if (n > 1)
-        {
-            inst->setCurrentProgram(juce::jlimit(0, n - 1, inst->getCurrentProgram() + delta));
-            syncPresetUi();
-        }
-    }
 }
 
 void MpePianoRollAudioProcessorEditor::timerCallback()
@@ -267,6 +205,10 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
                              + "   |   transport: " + statusText,
                          juce::dontSendNotification);
 
+    const bool one = pianoRoll.hasSoleSelection();
+    curveLessButton.setEnabled(one);
+    curveMoreButton.setEnabled(one);
+
     refreshHostedUi();
 }
 
@@ -281,19 +223,22 @@ void MpePianoRollAudioProcessorEditor::resized()
 
     auto toolbar = area.removeFromTop(30).reduced(6, 3);
 
-    // preset field (replaces the old Draw/Select buttons)
-    presetPrevButton.setBounds(toolbar.removeFromLeft(22));
+    // left: curve-diamond density for the selected note
+    curveLabel.setBounds(toolbar.removeFromLeft(58));
+    curveLessButton.setBounds(toolbar.removeFromLeft(22));
     toolbar.removeFromLeft(2);
-    presetBox.setBounds(toolbar.removeFromLeft(150));
-    toolbar.removeFromLeft(2);
-    presetNextButton.setBounds(toolbar.removeFromLeft(22));
-    toolbar.removeFromLeft(2);
-    presetBrowseButton.setBounds(toolbar.removeFromLeft(28));
+    curveMoreButton.setBounds(toolbar.removeFromLeft(22));
     toolbar.removeFromLeft(16);
 
-    // zoom reset on the far right
-    zoomResetButton.setBounds(toolbar.removeFromRight(40));
-    toolbar.removeFromRight(10);
+    // right: zoom (H / V / reset)
+    zoomResetButton.setBounds(toolbar.removeFromRight(38));
+    toolbar.removeFromRight(6);
+    zoomVInButton.setBounds(toolbar.removeFromRight(26));
+    zoomVOutButton.setBounds(toolbar.removeFromRight(26));
+    toolbar.removeFromRight(4);
+    zoomHInButton.setBounds(toolbar.removeFromRight(26));
+    zoomHOutButton.setBounds(toolbar.removeFromRight(26));
+    toolbar.removeFromRight(12);
 
     auto placeControl = [&toolbar](juce::Label& label, juce::Slider& slider, int labelWidth, int sliderWidth)
     {
@@ -302,9 +247,9 @@ void MpePianoRollAudioProcessorEditor::resized()
         toolbar.removeFromLeft(12);
     };
 
-    placeControl(loopLabel, loopLengthSlider, 70, 104);
-    placeControl(pbRangeLabel, pbRangeSlider, 78, 104);
-    placeControl(channelsLabel, channelsSlider, 82, 96);
+    placeControl(loopLabel, loopLengthSlider, 70, 100);
+    placeControl(pbRangeLabel, pbRangeSlider, 78, 100);
+    placeControl(channelsLabel, channelsSlider, 82, 92);
 
     auto synthBar = area.removeFromTop(28).reduced(6, 2);
     loadHostedButton.setBounds(synthBar.removeFromLeft(120));

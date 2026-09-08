@@ -57,11 +57,93 @@ void PianoRollComponent::zoomVertical(float factor, float anchorY)
     repaint();
 }
 
+void PianoRollComponent::zoomHorizontalCentred(float factor)
+{
+    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
+        zoomHorizontal(factor, (float) vp->getViewPositionX() + vp->getViewWidth() * 0.5f);
+    else
+        zoomHorizontal(factor, (float) getWidth() * 0.5f);
+}
+
+void PianoRollComponent::zoomVerticalCentred(float factor)
+{
+    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
+        zoomVertical(factor, (float) vp->getViewPositionY() + vp->getViewHeight() * 0.5f);
+    else
+        zoomVertical(factor, (float) getHeight() * 0.5f);
+}
+
 void PianoRollComponent::resetZoom()
 {
     pixelsPerBeat = defaultPixelsPerBeat;
     rowHeight = defaultRowHeight;
     updateContentSize();
+    repaint();
+}
+
+void PianoRollComponent::adjustDiamondDensity(int delta)
+{
+    const auto id = soleSelection();
+    if (id == juce::Uuid::null() || delta == 0)
+        return;
+
+    const float range = (float) processor.getPitchBendRangeSemitones();
+
+    processor.modifyNotes([&](std::vector<MpeNote>& notes)
+    {
+        for (auto& n : notes)
+        {
+            if (n.id != id)
+                continue;
+
+            auto& bend = n.bend;
+
+            // anchor beats bound each segment and never move here
+            std::vector<double> anchorBeats;
+            for (auto& p : bend.getPoints())
+                if (p.anchor)
+                    anchorBeats.push_back(p.beat);
+
+            for (size_t s = 0; s + 1 < anchorBeats.size(); ++s)
+            {
+                const double a = anchorBeats[s];
+                const double b = anchorBeats[s + 1];
+
+                if (delta > 0)
+                {
+                    // insert a diamond at the widest gap in this segment
+                    const auto& pts = bend.getPoints();
+                    double bestGap = -1.0, bestMid = 0.0;
+                    for (size_t i = 0; i + 1 < pts.size(); ++i)
+                    {
+                        if (pts[i].beat < a - 1.0e-6 || pts[i + 1].beat > b + 1.0e-6)
+                            continue;
+                        const double gap = pts[i + 1].beat - pts[i].beat;
+                        if (gap > bestGap) { bestGap = gap; bestMid = 0.5 * (pts[i].beat + pts[i + 1].beat); }
+                    }
+                    if (bestGap > 0.06)
+                    {
+                        const float v = juce::jlimit(-range, range, std::round(bend.sample(bestMid)));
+                        bend.addPoint(bestMid, v, false);
+                    }
+                }
+                else
+                {
+                    // remove one diamond from this segment
+                    const auto& pts = bend.getPoints();
+                    for (int i = 0; i < (int) pts.size(); ++i)
+                        if (! pts[(size_t) i].anchor
+                            && pts[(size_t) i].beat > a + 1.0e-6 && pts[(size_t) i].beat < b - 1.0e-6)
+                        {
+                            bend.removePoint(i);
+                            break;
+                        }
+                }
+            }
+            break;
+        }
+    });
+
     repaint();
 }
 
@@ -255,7 +337,7 @@ void PianoRollComponent::paint(juce::Graphics& g)
         // keyboard sidebar: real black / white keys
         g.setColour(black ? juce::Colour(0xff0a0a0a) : juce::Colour(0xffd6d6d6));
         g.fillRect(0.0f, yTop, (float) keyboardWidth, (float) rowHeight);
-        g.setColour(juce::Colour(0xff000000));
+        g.setColour(juce::Colours::black.withAlpha(pitch % 12 == 0 ? 0.22f : 0.12f));
         g.drawHorizontalLine((int) yTop, 0.0f, (float) keyboardWidth);
 
         // note area rows
@@ -271,11 +353,12 @@ void PianoRollComponent::paint(juce::Graphics& g)
         }
     }
 
-    // vertical grid: 1/4-beat, beat, bar (skip finer lines when zoomed out)
+    // vertical grid: 1/4-beat, beat, bar (skip the line at beat 0 - it just sits on
+    // the keyboard/roll boundary - and skip finer lines when zoomed out)
     auto verticals = [&](double step, juce::Colour c)
     {
         g.setColour(c);
-        for (double b = 0.0; b <= loopLen + 1.0e-6; b += step)
+        for (double b = step; b <= loopLen + 1.0e-6; b += step)
             g.drawVerticalLine((int) xForBeat(b), 0.0f, h);
     };
     if (pixelsPerBeat * 0.25f >= 5.0f) verticals(0.25, juce::Colours::white.withAlpha(0.05f));
@@ -590,7 +673,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 
     MpeNote n;
     n.startBeat = snapBeat(beatForX(pos.x), fine);
-    n.lengthBeats = 1.0;
+    n.lengthBeats = juce::jmax(0.25, lastNoteLength);   // match the last note you resized
     n.pitch = juce::jlimit(lowestPitch, highestPitch, (int) std::round(pitchForY(pos.y)));
     n.velocity = 0.85f;
     n.lengthBeats = n.bend.conformEnd(n.lengthBeats);   // start + end anchors
@@ -667,7 +750,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
             if (dragMode == DragMode::movePoint)
             {
                 float semis = pitchForY(pos.y) - (float) n.pitch;
-                if (! fine && dragPointIsAnchor)
+                if (! fine)                       // anchors AND diamonds snap to semitones
                     semis = std::round(semis);
                 semis = juce::jlimit(-range, range, semis);
 
@@ -680,6 +763,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
                     const double b = juce::jmax(minLen, rawBeat);
                     dragPointIndex = n.bend.movePoint(dragPointIndex, b, semis);
                     n.lengthBeats = b;
+                    lastNoteLength = b;           // new notes take this length
                 }
                 else
                 {
@@ -721,9 +805,11 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent& e)
         if (! ribbonHit(n, pos))
             return false;
 
+        const bool fine = e.mods.isAltDown();
         const double b = juce::jlimit(0.03125, n.bend.lastBeat() - 0.03125,
-                                      snapBeat(beatForX(pos.x) - n.startBeat, e.mods.isAltDown()));
-        const float semis = n.bend.sample(b);
+                                      snapBeat(beatForX(pos.x) - n.startBeat, fine));
+        float semis = n.bend.sample(b);
+        if (! fine) semis = std::round(semis);
 
         int newIndex = -1;
         processor.modifyNotes([&](std::vector<MpeNote>& notes)

@@ -26,4 +26,9 @@ public:
         g.setColour(c);
         g.fillRoundedRectangle(bounds, 2.0f);
     }
+
+    int getSliderThumbRadius(juce::Slider& s) override
+    {
+        return juce::jmax(4, juce::jmin(6, s.getHeight() / 3));
+    }
 };

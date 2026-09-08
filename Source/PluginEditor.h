@@ -23,8 +23,6 @@ private:
     void chooseHostedPlugin();
     void toggleHostedWindow();
     void refreshHostedUi();
-    void syncPresetUi();
-    void stepPreset(int delta);
 
     MpePianoRollAudioProcessor& processor;
     FlatLookAndFeel flatLnf;
@@ -32,14 +30,16 @@ private:
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;
 
-    // current-preset field (hosted plugin's program list, when it exposes one)
-    juce::TextButton presetPrevButton { "<" };
-    juce::TextButton presetNextButton { ">" };
-    juce::ComboBox   presetBox;
-    juce::TextButton presetBrowseButton { "..." };
-    int presetItemCount = -1;
-    juce::String presetSourceKey;
+    // curve-diamond density for the selected note
+    juce::Label curveLabel { {}, "Curve pts" };
+    juce::TextButton curveLessButton { "-" };
+    juce::TextButton curveMoreButton { "+" };
 
+    // zoom: separate horizontal / vertical, plus reset
+    juce::TextButton zoomHOutButton { "H-" };
+    juce::TextButton zoomHInButton  { "H+" };
+    juce::TextButton zoomVOutButton { "V-" };
+    juce::TextButton zoomVInButton  { "V+" };
     juce::TextButton zoomResetButton { "1:1" };
 
     juce::Label loopLabel { {}, "Loop (bars)" };
