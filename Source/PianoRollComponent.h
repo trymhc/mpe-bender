@@ -39,7 +39,7 @@ public:
 private:
     void timerCallback() override { repaint(); }
 
-    enum class DragMode { none, marquee, moveNotes, resizeRight, movePoint };
+    enum class DragMode { none, marquee, moveNotes, movePoint };
 
     float yForPitch(float pitch) const
     {

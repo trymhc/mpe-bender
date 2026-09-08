@@ -317,17 +317,22 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
     const float range = (float) processor.getPitchBendRangeSemitones();
 
     // ---- right-edge resize handle (both tools) ----
-    // Checked before bend points so a point sitting on the note end doesn't block
-    // resizing; hold the drag horizontally to change length.
+    // The end anchor IS the resize handle: grabbing near the note end grabs the
+    // trailing bend point. Dragging it horizontally changes the note length, and
+    // vertically bends the note's tail. Checked before other points so a point on
+    // the edge doesn't block it.
     if (! rightClick && ! addAnchor && ! e.mods.isShiftDown())
     {
         auto tryResize = [&](const MpeNote& n) -> bool
         {
-            if (! nearRightEdge(n, pos))
+            const int last = n.bend.lastIndex();
+            if (last <= 0 || ! nearRightEdge(n, pos))
                 return false;
             selectOnly(n.id);
-            dragMode = DragMode::resizeRight;
+            dragMode = DragMode::movePoint;
             dragNoteId = n.id;
+            dragPointIndex = last;
+            dragPointIsAnchor = n.bend.isAnchor(last);
             repaint();
             return true;
         };
@@ -344,7 +349,8 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
             {
                 if (! ribbonHit(n, pos))
                     return false;
-                const double b = juce::jlimit(0.0, n.lengthBeats, snapBeat(beatForX(pos.x) - n.startBeat, fine));
+                const double b = juce::jlimit(0.03125, n.bend.lastBeat() - 0.03125,
+                                              snapBeat(beatForX(pos.x) - n.startBeat, fine));
                 float semis = pitchForY(pos.y) - (float) n.pitch;
                 if (! fine) semis = std::round(semis);
                 semis = juce::jlimit(-range, range, semis);
@@ -464,6 +470,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
     n.lengthBeats = 1.0;
     n.pitch = juce::jlimit(lowestPitch, highestPitch, (int) std::round(pitchForY(pos.y)));
     n.velocity = 0.85f;
+    n.lengthBeats = n.bend.conformEnd(n.lengthBeats);   // start + end anchors
     const auto id = n.id;
 
     processor.modifyNotes([&](std::vector<MpeNote>& notes) { notes.push_back(n); });
@@ -514,18 +521,29 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
             if (n.id != dragNoteId)
                 continue;
 
-            if (dragMode == DragMode::resizeRight)
+            if (dragMode == DragMode::movePoint)
             {
-                n.lengthBeats = juce::jmax(0.25, snapBeat(beatForX(pos.x) - n.startBeat, fine));
-            }
-            else if (dragMode == DragMode::movePoint)
-            {
-                double b = juce::jlimit(0.0, n.lengthBeats, snapBeat(beatForX(pos.x) - n.startBeat, fine));
                 float semis = pitchForY(pos.y) - (float) n.pitch;
                 if (! fine && dragPointIsAnchor)
                     semis = std::round(semis);
                 semis = juce::jlimit(-range, range, semis);
-                dragPointIndex = n.bend.movePoint(dragPointIndex, b, semis);
+
+                const double rawBeat = snapBeat(beatForX(pos.x) - n.startBeat, fine);
+
+                if (dragPointIndex == n.bend.lastIndex() && dragPointIndex > 0)
+                {
+                    // the end anchor: horizontal = note length, vertical = tail bend
+                    const double minLen = juce::jmax(0.25, n.bend.beatBefore(dragPointIndex) + 0.0625);
+                    const double b = juce::jmax(minLen, rawBeat);
+                    dragPointIndex = n.bend.movePoint(dragPointIndex, b, semis);
+                    n.lengthBeats = b;
+                }
+                else
+                {
+                    // an interior point / diamond: stay inside the note
+                    const double b = juce::jlimit(0.0, n.bend.lastBeat() - 0.03125, rawBeat);
+                    dragPointIndex = n.bend.movePoint(dragPointIndex, b, semis);
+                }
             }
             break;
         }
@@ -559,7 +577,7 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent& e)
         if (! ribbonHit(n, pos))
             return false;
 
-        const double b = juce::jlimit(0.0, n.lengthBeats,
+        const double b = juce::jlimit(0.03125, n.bend.lastBeat() - 0.03125,
                                       snapBeat(beatForX(pos.x) - n.startBeat, e.mods.isAltDown()));
         const float semis = n.bend.sample(b);
 

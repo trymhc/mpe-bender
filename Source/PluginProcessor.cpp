@@ -12,14 +12,15 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     a.lengthBeats = 2.0;
     a.pitch = 60;
     a.bend.addPoint(1.0, 2.0f);
-    a.bend.addPoint(2.0, 2.0f);
     a.bend.addPoint(0.5, 0.4f, false);   // a shaper diamond -> curved scoop into the bend
+    a.lengthBeats = a.bend.conformEnd(2.0);   // end anchor at beat 2, value held at 2 st
     notes.push_back(a);
 
     MpeNote b;
     b.startBeat = 2.0;
     b.lengthBeats = 2.0;
     b.pitch = 64;
+    b.lengthBeats = b.bend.conformEnd(2.0);
     notes.push_back(b);
 }
 
@@ -394,6 +395,7 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
 
         deserialiseCurve(n.bend, "Bend");
         deserialiseCurve(n.bend, "PitchBend");   // accept the pre-0.3 tag name too
+        n.lengthBeats = n.bend.conformEnd(n.lengthBeats);   // guarantee a trailing end anchor
 
         loaded.push_back(n);
     }

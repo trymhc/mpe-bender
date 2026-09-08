@@ -78,15 +78,45 @@ public:
 
     void removePoint(int index)
     {
-        if ((int) points.size() <= 1)
+        // keep the first (start) and last (end) anchors - they define the note's span
+        if ((int) points.size() <= 2)
             return;
-        if (index >= 0 && index < (int) points.size())
+        if (index > 0 && index < (int) points.size() - 1)
             points.erase(points.begin() + index);
     }
 
     bool isAnchor(int index) const
     {
         return index >= 0 && index < (int) points.size() && points[(size_t) index].anchor;
+    }
+
+    int lastIndex() const { return (int) points.size() - 1; }
+    double lastBeat() const { return points.empty() ? 0.0 : points.back().beat; }
+    double beatBefore(int index) const
+    {
+        return (index > 0 && index < (int) points.size()) ? points[(size_t) (index - 1)].beat : 0.0;
+    }
+
+    // Ensure the curve has a trailing anchor that marks the note end. Returns the
+    // note length the curve implies (its last point's beat).
+    double conformEnd(double lengthBeats)
+    {
+        if (points.empty())
+            points.push_back({ 0.0, defaultVal, true });
+
+        if ((int) points.size() < 2)
+        {
+            points.push_back({ std::max(0.25, lengthBeats), points.back().value, true });
+            return points.back().beat;
+        }
+
+        points.back().anchor = true;
+        if (points.back().beat < lengthBeats - 1.0e-6)
+        {
+            points.push_back({ lengthBeats, points.back().value, true });
+            return lengthBeats;
+        }
+        return points.back().beat;
     }
 
     // legacy loaders
