@@ -154,17 +154,13 @@ struct MpeNote
     ExpressionCurve bend { 0.0f };
 
     BendShape shape = BendShape::straight;
-    float shapeCyclePeriod = 1.0f; // beats per wave cycle (grid-locked); cycle count = span / period
+    float shapeCycles   = 4.0f;    // cycle count between the two bend points; always a multiple
+                                   // of 0.5 so the wave returns to the chord at the end point
     float shapeSkew     = 1.0f;    // phase warp: >1 bunches cycles toward the end
     float shapeAmpStart = 0.0f;    // wave amplitude (semitones) at the start point
     float shapeAmpEnd   = 2.0f;    // wave amplitude (semitones) at the end point
 
-    // Cycles between the first and last bend point at the current length.
-    float shapeCycleCount() const
-    {
-        const double span = std::max(bend.lastBeat() - bend.firstBeat(), 0.03125);
-        return (float) juce::jmax(1.0, span / std::max(0.03125f, shapeCyclePeriod));
-    }
+    float shapeCycleCount() const { return juce::jmax(1.0f, shapeCycles); }
 
     int assignedChannel = -1;
     bool isSounding = false;

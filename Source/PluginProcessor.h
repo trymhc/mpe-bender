@@ -110,6 +110,8 @@ private:
     double loopLengthBeats = 32.0;   // 8 bars of 4/4
     bool wasPlaying = false;
     bool zoneConfigSent = false;
+    int configResends = 0;
+    int configResendCountdown = 0;
     std::atomic<bool> forwardHostMidi { true };
 
     // Deferred hosted-plugin load, set by setStateInformation and consumed on the

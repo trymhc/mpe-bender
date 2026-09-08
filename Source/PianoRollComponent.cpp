@@ -492,10 +492,7 @@ void PianoRollComponent::paint(juce::Graphics& g)
 
                     juce::String rd;
                     if (dragMode == DragMode::shapeCycles)
-                    {
-                        const int sixteenths = juce::jmax(1, juce::roundToInt(n->shapeCyclePeriod / 0.25f));
-                        rd = juce::String(sixteenths) + "/16  " + juce::String(n->shapeCycleCount(), 1) + " cyc";
-                    }
+                        rd = juce::String(n->shapeCycleCount(), 1) + " cyc";
                     else if (dragMode == DragMode::shapeSqueeze)   rd = "skew " + juce::String(n->shapeSkew, 2);
                     else if (dragMode == DragMode::shapeAmpStart)  rd = "amp0 " + juce::String(n->shapeAmpStart, 1);
                     else if (dragMode == DragMode::shapeAmpEnd)    rd = "amp1 " + juce::String(n->shapeAmpEnd, 1);
@@ -832,11 +829,9 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
                 {
                     const double spanB = n.bend.lastBeat() - n.bend.firstBeat();
                     const float cycMax = cycMaxFor(spanB);
-                    const float cyc = 1.0f + juce::jlimit(0.0f, 1.0f, (pos.x - s.x0) / span) * (cycMax - 1.0f);
-                    double period = spanB / juce::jmax(1.0f, cyc);
-                    if (! fine)                          // lock the cycle period to the 1/16 grid
-                        period = std::round(period / 0.25) * 0.25;
-                    n.shapeCyclePeriod = (float) juce::jlimit(0.25, spanB, period);
+                    float cyc = 1.0f + juce::jlimit(0.0f, 1.0f, (pos.x - s.x0) / span) * (cycMax - 1.0f);
+                    cyc = std::round(cyc * 2.0f) / 2.0f;   // always 0.5-cycle steps: the wave ends on the chord
+                    n.shapeCycles = juce::jmax(1.0f, cyc);
                 }
                 else if (dragMode == DragMode::shapeSqueeze)
                 {

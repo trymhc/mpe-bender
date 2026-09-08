@@ -14,7 +14,7 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     a.bend.addPoint(4.0, 7.0f);          // rises a fifth over 4 beats (the chord)
     a.lengthBeats = a.bend.conformEnd(4.0);
     a.shape = BendShape::sine;
-    a.shapeCyclePeriod = 1.0f;   // one cycle per beat -> 4 cycles over the 4-beat note
+    a.shapeCycles = 4.0f;
     a.shapeSkew = 1.6f;
     a.shapeAmpStart = 0.3f;
     a.shapeAmpEnd = 2.5f;
@@ -92,7 +92,10 @@ juce::String MpePianoRollAudioProcessor::loadHostedPlugin(const juce::File& vst3
 {
     auto err = hostedPlugin.load(vst3File, currentSampleRate, currentBlockSize);
     if (err.isEmpty())
+    {
         hostedPlugin.setPlayHead(getPlayHead());
+        zoneConfigSent = false;   // (re)announce MPE to the freshly loaded synth
+    }
     return err;
 }
 
@@ -121,6 +124,7 @@ void MpePianoRollAudioProcessor::handleAsyncUpdate()
     auto err = hostedPlugin.loadWithState(file, currentSampleRate, currentBlockSize, hostedState);
     juce::ignoreUnused(err);
     hostedPlugin.setPlayHead(getPlayHead());
+    zoneConfigSent = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,10 +210,20 @@ void MpePianoRollAudioProcessor::processBlock(juce::AudioBuffer<float>& audioBuf
         }
         else
         {
+            // (Re)announce MPE: on the first playing block, and again a few times
+            // over the next ~1.5 s so a late-loading synth (e.g. Serum) still
+            // picks up its zone + per-channel pitch-bend range.
             if (! zoneConfigSent)
             {
-                engine.sendZoneConfiguration(forSynth, 0);
+                configResends = 6;
+                configResendCountdown = 0;
                 zoneConfigSent = true;
+            }
+            if (configResends > 0 && --configResendCountdown <= 0)
+            {
+                engine.sendZoneConfiguration(forSynth, 0);
+                --configResends;
+                configResendCountdown = juce::jmax(1, (int) (currentSampleRate * 0.25 / juce::jmax(1, numSamples)));
             }
             wasPlaying = true;
 
@@ -309,7 +323,7 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
             nt.setProperty("velocity", n.velocity, nullptr);
             nt.setProperty("releaseVelocity", n.releaseVelocity, nullptr);
             nt.setProperty("shape", (int) n.shape, nullptr);
-            nt.setProperty("shapeCyclePeriod", n.shapeCyclePeriod, nullptr);
+            nt.setProperty("shapeCycles", n.shapeCycles, nullptr);
             nt.setProperty("shapeSkew", n.shapeSkew, nullptr);
             nt.setProperty("shapeAmpStart", n.shapeAmpStart, nullptr);
             nt.setProperty("shapeAmpEnd", n.shapeAmpEnd, nullptr);
@@ -362,12 +376,10 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
         n.velocity = (float) (double) nt.getProperty("velocity", 0.8);
         n.releaseVelocity = (float) (double) nt.getProperty("releaseVelocity", 0.5);
         n.shape = (BendShape) (int) nt.getProperty("shape", 0);
-        n.shapeCyclePeriod = (float) (double) nt.getProperty("shapeCyclePeriod", 1.0);
-        if (nt.hasProperty("shapeCycles") && ! nt.hasProperty("shapeCyclePeriod"))   // pre-0.8 count -> period
-        {
-            const double c = juce::jmax(1.0, (double) nt.getProperty("shapeCycles", 1.0));
-            n.shapeCyclePeriod = (float) juce::jmax(0.25, n.lengthBeats / c);
-        }
+        n.shapeCycles = (float) (double) nt.getProperty("shapeCycles", 4.0);
+        if (auto p = nt.getProperty("shapeCyclePeriod", juce::var()); ! p.isVoid())   // 0.8-only field -> count
+            n.shapeCycles = (float) juce::jmax(1.0, n.lengthBeats / juce::jmax(0.03125, (double) p));
+        n.shapeCycles = std::round(n.shapeCycles * 2.0f) / 2.0f;
         n.shapeSkew     = (float) (double) nt.getProperty("shapeSkew", 1.0);
         n.shapeAmpStart = (float) (double) nt.getProperty("shapeAmpStart", 0.0);
         n.shapeAmpEnd   = (float) (double) nt.getProperty("shapeAmpEnd", 2.0);

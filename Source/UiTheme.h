@@ -29,6 +29,10 @@ public:
         setColour(juce::TextButton::buttonOnColourId, Theme::buttonOn);
         setColour(juce::TextButton::textColourOffId,  Theme::text.withAlpha(0.8f));
         setColour(juce::TextButton::textColourOnId,   Theme::text);
+
+        setColour(juce::ScrollBar::thumbColourId,      juce::Colour(0xff616161));
+        setColour(juce::ScrollBar::trackColourId,      juce::Colour(0xff2f2f2f));
+        setColour(juce::ScrollBar::backgroundColourId, juce::Colour(0xff333333));
     }
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,

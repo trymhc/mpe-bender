@@ -217,6 +217,13 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
 void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(Theme::panel);
+
+    if (currentTab == Tab::roll)
+    {
+        // separator between the top bar and the piano roll
+        g.setColour(juce::Colour(0xff222222));
+        g.fillRect(0, rollViewport.getY() - 3, getWidth(), 2);
+    }
 }
 
 void MpePianoRollAudioProcessorEditor::showTab(Tab t)
@@ -282,6 +289,7 @@ void MpePianoRollAudioProcessorEditor::resized()
     hostedStatusLabel.setBounds(synthBar);
 
     statusLabel.setBounds(area.removeFromTop(18).reduced(6, 1));
+    area.removeFromTop(4);   // room for the separator line
 
     rollViewport.setBounds(area);
     pianoRoll.updateContentSize();
