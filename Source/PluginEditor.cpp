@@ -72,8 +72,9 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     helpLabel.setJustificationType(juce::Justification::centredRight);
     helpLabel.setFont(11.0f);
     helpLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.5f));
-    helpLabel.setText("click: add note   -   drag body: move   -   drag right edge: length   -   "
-                      "double-click note: add bend point   -   drag point: bend   -   right-click: delete",
+    helpLabel.setText("click: add note   -   drag body: move   -   drag edge: length   -   "
+                      "dbl-click note: add point   -   drag point: bend   -   "
+                      "drag diamond: curve segment   -   right-click: delete / straighten",
                       juce::dontSendNotification);
     addAndMakeVisible(helpLabel);
 

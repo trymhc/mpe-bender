@@ -20,15 +20,71 @@ bool PianoRollComponent::isBlackKey(int pitch) const
 
 void PianoRollComponent::buildNotePath(const MpeNote& note, juce::Path& path) const
 {
+    auto yAt = [&](double beatOffset)
+    {
+        return yForPitch((float) note.pitch + note.bend.sample(beatOffset));
+    };
+
+    const float x0 = xForBeat(note.startBeat);
+    const float x1 = xForBeat(note.endBeat());
+
+    path.startNewSubPath(x0, yAt(0.0));
+
+    // Sample the (possibly curved) pitch path every couple of pixels.
+    for (float x = x0 + 2.0f; x < x1; x += 2.0f)
+        path.lineTo(x, yAt(beatForX(x) - note.startBeat));
+
+    path.lineTo(x1, yAt(note.lengthBeats));
+}
+
+juce::Point<float> PianoRollComponent::tensionHandlePos(const MpeNote& note, int i) const
+{
     const auto& pts = note.bend.getPoints();
+    if (i < 0 || i + 1 >= (int) pts.size())
+        return {};
 
-    auto pointX = [&](double beatOffset) { return xForBeat(note.startBeat + juce::jlimit(0.0, note.lengthBeats, beatOffset)); };
-    auto pointY = [&](float semis)        { return yForPitch((float) note.pitch + semis); };
+    const double b0 = juce::jlimit(0.0, note.lengthBeats, pts[(size_t) i].beat);
+    const double b1 = juce::jlimit(0.0, note.lengthBeats, pts[(size_t) (i + 1)].beat);
+    const double bm = 0.5 * (b0 + b1);
 
-    path.startNewSubPath(xForBeat(note.startBeat), pointY(pts.front().value));
-    for (auto& p : pts)
-        path.lineTo(pointX(p.beat), pointY(p.value));
-    path.lineTo(xForBeat(note.endBeat()), pointY(note.bend.sample(note.lengthBeats)));
+    return { xForBeat(note.startBeat + bm),
+             yForPitch((float) note.pitch + note.bend.sample(bm)) };
+}
+
+int PianoRollComponent::tensionHandleAt(const MpeNote& note, juce::Point<float> pos) const
+{
+    const auto& pts = note.bend.getPoints();
+    for (int i = 0; i + 1 < (int) pts.size(); ++i)
+    {
+        // A flat segment can't be curved - no handle.
+        if (std::abs(pts[(size_t) (i + 1)].value - pts[(size_t) i].value) < 0.01f)
+            continue;
+        if (pos.getDistanceFrom(tensionHandlePos(note, i)) <= pointRadius + 3.0f)
+            return i;
+    }
+    return -1;
+}
+
+void PianoRollComponent::applyTensionDrag(MpeNote& note, int leftIndex, juce::Point<float> pos) const
+{
+    const auto& pts = note.bend.getPoints();
+    if (leftIndex < 0 || leftIndex + 1 >= (int) pts.size())
+        return;
+
+    const float v0 = pts[(size_t) leftIndex].value;
+    const float v1 = pts[(size_t) (leftIndex + 1)].value;
+    if (std::abs(v1 - v0) < 0.01f)
+        return;
+
+    // Where (0..1 between the two point values) is the mouse, vertically?
+    const float mouseSemis = pitchForY(pos.y) - (float) note.pitch;
+    const float w = juce::jlimit(0.0f, 1.0f, (mouseSemis - v0) / (v1 - v0));
+
+    float tension = tensionForMidpoint(w);
+    if (std::abs(tension) < 0.06f)   // snap to straight
+        tension = 0.0f;
+
+    note.bend.setTension(leftIndex, tension);
 }
 
 int PianoRollComponent::pointIndexAt(const MpeNote& note, juce::Point<float> pos) const
@@ -135,8 +191,27 @@ void PianoRollComponent::paint(juce::Graphics& g)
 
         drawNote(n, true);
 
-        // bend-point handles + offset labels
         const auto& pts = n.bend.getPoints();
+
+        // tension handles: small diamonds on the middle of each non-flat segment
+        for (int i = 0; i + 1 < (int) pts.size(); ++i)
+        {
+            if (std::abs(pts[(size_t) (i + 1)].value - pts[(size_t) i].value) < 0.01f)
+                continue;
+
+            auto c = tensionHandlePos(n, i);
+            const float r = pointRadius - 0.5f;
+            juce::Path diamond;
+            diamond.addQuadrilateral(c.x, c.y - r, c.x + r, c.y, c.x, c.y + r, c.x - r, c.y);
+
+            g.setColour((pts[(size_t) i].tension != 0.0f ? juce::Colour(0xffffd23f)
+                                                         : juce::Colours::white).withAlpha(0.9f));
+            g.fillPath(diamond);
+            g.setColour(juce::Colours::black.withAlpha(0.6f));
+            g.strokePath(diamond, juce::PathStrokeType(1.0f));
+        }
+
+        // bend-point handles + offset labels
         for (int i = 0; i < (int) pts.size(); ++i)
         {
             auto x = xForBeat(n.startBeat + juce::jlimit(0.0, n.lengthBeats, pts[(size_t) i].beat));
@@ -212,6 +287,34 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 
     for (auto& n : snap) if (n.id == selectedId && tryPoint(n)) return;
     for (auto& n : snap) if (n.id != selectedId && tryPoint(n)) return;
+
+    // 1.5) tension handle on a segment of the selected note?
+    for (auto& n : snap)
+    {
+        if (n.id != selectedId)
+            continue;
+
+        const int seg = tensionHandleAt(n, pos);
+        if (seg < 0)
+            break;
+
+        if (rightClick)
+        {
+            processor.modifyNotes([&](std::vector<MpeNote>& notes)
+            {
+                for (auto& m : notes)
+                    if (m.id == n.id) { m.bend.setTension(seg, 0.0f); break; }
+            });
+        }
+        else
+        {
+            dragMode = DragMode::moveTension;
+            dragNoteId = n.id;
+            dragPointIndex = seg;
+        }
+        repaint();
+        return;
+    }
 
     // 2) note ribbon under the mouse?
     auto tryRibbon = [&](const MpeNote& n) -> bool
@@ -314,6 +417,10 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
                 semis = juce::jlimit(-range, range, semis);
                 dragPointIndex = n.bend.movePoint(dragPointIndex, b, semis);
             }
+            else if (dragMode == DragMode::moveTension)
+            {
+                applyTensionDrag(n, dragPointIndex, pos);
+            }
             break;
         }
     });
@@ -335,6 +442,25 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent& e)
 
     std::vector<MpeNote> snap;
     processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
+
+    // double-click a tension handle -> straighten that segment
+    for (auto& n : snap)
+    {
+        if (n.id != selectedId)
+            continue;
+
+        const int seg = tensionHandleAt(n, pos);
+        if (seg < 0)
+            break;
+
+        processor.modifyNotes([&](std::vector<MpeNote>& notes)
+        {
+            for (auto& m : notes)
+                if (m.id == n.id) { m.bend.setTension(seg, 0.0f); break; }
+        });
+        repaint();
+        return;
+    }
 
     for (auto& n : snap)
     {

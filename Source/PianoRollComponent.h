@@ -7,8 +7,9 @@
 // (base key + bend points) across the keyboard - so a note can start on one key
 // and bend to another, drawn and heard as one gesture. Bend points are edited
 // directly on the note: double-click the ribbon to add a point, drag points in
-// time and pitch, right-click a point to remove it (right-click the ribbon body
-// to delete the note).
+// time and pitch, drag the small handle on the middle of a segment to curve it
+// (right-click / double-click that handle resets it straight), right-click a
+// point to remove it, right-click the ribbon body to delete the note.
 class PianoRollComponent final : public juce::Component, private juce::Timer
 {
 public:
@@ -27,7 +28,7 @@ public:
 private:
     void timerCallback() override { repaint(); }
 
-    enum class DragMode { none, moveNote, resizeRight, movePoint };
+    enum class DragMode { none, moveNote, resizeRight, movePoint, moveTension };
 
     // --- coordinate mapping (y is the CENTRE of a key row) ---
     float yForPitch(float pitch) const
@@ -57,9 +58,16 @@ private:
 
     // Returns the index of a bend point of `note` under the mouse, or -1.
     int pointIndexAt(const MpeNote& note, juce::Point<float> pos) const;
+    // Returns the index of the LEFT point of a segment whose tension handle is
+    // under the mouse, or -1. Only meaningful for the selected note.
+    int tensionHandleAt(const MpeNote& note, juce::Point<float> pos) const;
+    // Centre of the tension handle for the segment starting at point `i`.
+    juce::Point<float> tensionHandlePos(const MpeNote& note, int i) const;
     // Is the mouse on `note`'s ribbon (anywhere along its length)?
     bool ribbonHit(const MpeNote& note, juce::Point<float> pos) const;
     bool nearRightEdge(const MpeNote& note, juce::Point<float> pos) const;
+
+    void applyTensionDrag(MpeNote& note, int leftIndex, juce::Point<float> pos) const;
 
     void buildNotePath(const MpeNote& note, juce::Path& path) const;
 

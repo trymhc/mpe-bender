@@ -13,6 +13,7 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     a.pitch = 60;
     a.bend.addPoint(1.0, 2.0f);
     a.bend.addPoint(2.0, 2.0f);
+    a.bend.setTension(0, -0.5f);   // curved scoop up into the first point
     notes.push_back(a);
 
     MpeNote b;
@@ -311,6 +312,8 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
                     juce::ValueTree pt("Pt");
                     pt.setProperty("beat", p.beat, nullptr);
                     pt.setProperty("value", p.value, nullptr);
+                    if (p.tension != 0.0f)
+                        pt.setProperty("tension", p.tension, nullptr);
                     ct.appendChild(pt, nullptr);
                 }
                 return ct;
@@ -365,7 +368,9 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
             for (int p = 0; p < ct.getNumChildren(); ++p)
             {
                 auto pt = ct.getChild(p);
-                curve.setPoint((double) pt.getProperty("beat", 0.0), (float) (double) pt.getProperty("value", 0.0));
+                curve.setPoint((double) pt.getProperty("beat", 0.0),
+                               (float) (double) pt.getProperty("value", 0.0),
+                               (float) (double) pt.getProperty("tension", 0.0));
             }
         };
 

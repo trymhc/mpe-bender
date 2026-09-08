@@ -8,12 +8,39 @@
 // A single breakpoint in a note's pitch curve.
 struct CurvePoint
 {
-    double beat = 0.0;   // position relative to the note's start, in beats
-    float value = 0.0f;  // semitone offset from the note's base pitch (may be fractional / negative)
+    double beat = 0.0;    // position relative to the note's start, in beats
+    float value = 0.0f;   // semitone offset from the note's base pitch (may be fractional / negative)
+    float tension = 0.0f; // -1..+1 curve of the segment leaving this point; 0 = straight line
 };
 
-// A breakpoint envelope sampled over the lifetime of a note. Linear interpolation
-// between points; holds the end values beyond the first / last point.
+// Ease `t` (0..1) through a single-curvature "tension" bend, FL-automation style.
+// tension > 0 : ease-in  (slow start, fast finish)
+// tension < 0 : ease-out (fast start, slow finish)
+inline float applyTension(float t, float tension)
+{
+    t = std::min(1.0f, std::max(0.0f, t));
+    if (tension > 1.0e-4f)
+        return std::pow(t, 1.0f + tension * 3.0f);
+    if (tension < -1.0e-4f)
+        return 1.0f - std::pow(1.0f - t, 1.0f - tension * 3.0f);
+    return t;
+}
+
+// Given a normalised curve position `w` (0..1) that the segment should pass through
+// at its time-midpoint, return the tension that produces it. Inverse of
+// applyTension(0.5, tension).
+inline float tensionForMidpoint(float w)
+{
+    w = std::min(0.999f, std::max(0.001f, w));
+    const float l = std::log(0.5f);
+    if (w <= 0.5f)
+        return juce::jlimit(-1.0f, 1.0f, ((std::log(w) / l) - 1.0f) / 3.0f);
+    return juce::jlimit(-1.0f, 1.0f, (1.0f - (std::log(1.0f - w) / l)) / 3.0f);
+}
+
+// A breakpoint envelope sampled over the lifetime of a note. Segments interpolate
+// linearly unless the left point carries a tension; holds the end values beyond
+// the first / last point.
 class ExpressionCurve
 {
 public:
@@ -55,7 +82,8 @@ public:
         if (index == 0)
             beat = 0.0;
 
-        points[(size_t) index] = { std::max(0.0, beat), value };
+        const float keepTension = points[(size_t) index].tension;
+        points[(size_t) index] = { std::max(0.0, beat), value, keepTension };
         std::stable_sort(points.begin(), points.end(),
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
 
@@ -73,6 +101,12 @@ public:
             points.erase(points.begin() + index);
     }
 
+    void setTension(int index, float tension)
+    {
+        if (index >= 0 && index < (int) points.size())
+            points[(size_t) index].tension = juce::jlimit(-1.0f, 1.0f, tension);
+    }
+
     // Legacy helpers still used when building demo content / loading old state.
     void setPoint(double beat, float value)
     {
@@ -80,6 +114,16 @@ public:
         for (auto& p : points)
             if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; return; }
         addPoint(beat, value);
+    }
+
+    // Used when restoring saved state.
+    void setPoint(double beat, float value, float tension)
+    {
+        beat = std::max(0.0, beat);
+        for (auto& p : points)
+            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; p.tension = tension; return; }
+        const int idx = addPoint(beat, value);
+        points[(size_t) idx].tension = tension;
     }
 
     // Sample the curve at a beat offset from the note's start.
@@ -101,7 +145,7 @@ public:
                 if (b.beat - a.beat < 1.0e-9)
                     return b.value;
                 auto t = (float) ((beat - a.beat) / (b.beat - a.beat));
-                return a.value + t * (b.value - a.value);
+                return a.value + applyTension(t, a.tension) * (b.value - a.value);
             }
         }
         return points.back().value;
