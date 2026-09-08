@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 #include "PianoRollComponent.h"
+#include "KeyboardSidebar.h"
 #include "HostedPluginWindow.h"
 #include "UiTheme.h"
 #include <memory>
@@ -29,6 +30,7 @@ private:
 
     juce::Viewport rollViewport;
     PianoRollComponent pianoRoll;
+    KeyboardSidebar keyboardSidebar { pianoRoll, rollViewport };
 
     juce::TextButton zoomResetButton { "1:1" };
 
@@ -39,8 +41,8 @@ private:
     juce::Label channelsLabel { {}, "MPE Channels" };
     juce::Slider channelsSlider;
 
-    juce::TextButton loadHostedButton { "Load Serum 2..." };
-    juce::TextButton openHostedButton { "Open synth UI" };
+    juce::TextButton loadHostedButton { "Load ..." };
+    juce::TextButton openHostedButton { "Open synth" };
     juce::TextButton forwardMidiButton { "Fwd host MIDI" };
     juce::Label hostedStatusLabel;
 

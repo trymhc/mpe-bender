@@ -37,6 +37,11 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
 
     static constexpr int keyboardWidth = 50;
+    static constexpr int lowestPitch = 24;    // C1
+    static constexpr int highestPitch = 96;   // C7
+
+    float getRowHeight() const { return rowHeight; }
+    bool isBlackKey(int pitch) const;
 
     void zoomBoth(float factor, float anchorX, float anchorY);
     void resetZoom();
@@ -82,8 +87,6 @@ private:
         return std::round(delta / grid) * grid;
     }
 
-    bool isBlackKey(int pitch) const;
-
     int pointIndexAt(const MpeNote& note, juce::Point<float> pos) const;
     bool ribbonHit(const MpeNote& note, juce::Point<float> pos) const;
     bool nearRightEdge(const MpeNote& note, juce::Point<float> pos) const;
@@ -107,13 +110,17 @@ private:
         bool valid = false;
         juce::Uuid noteId;
         float x0 = 0, y0 = 0, x1 = 0, y1 = 0;   // first / last bend point, screen space
-        juce::Rectangle<float> wStraight, wSine, wTri;   // wheel buttons
-        juce::Rectangle<float> cyclesTrack, squeezeTrack, ampStartTrack, ampEndTrack;
-        juce::Point<float> cyclesH, squeezeH, ampStartH, ampEndH;
-        bool wave = false;   // shape != straight -> the sliders are shown
+        juce::Point<float> wheel;               // 3-slice shape selector centre
+        float wheelR = 15.0f;
+        bool wave = false;                      // shape != straight -> extra controls
+        juce::Rectangle<float> cyclesTrack, squeezeTrack;
+        juce::Point<float> cyclesH, squeezeH;
+        juce::Point<float> ampStartKnob, ampEndKnob;
+        float knobR = 9.0f;
     };
     ShapeUI shapeUIFor(const MpeNote& note) const;
     void setNoteShape(const juce::Uuid& id, BendShape s);
+    int wheelSliceAt(const ShapeUI& s, juce::Point<float> pos) const;   // -1, 0=STR, 1=TRI, 2=SIN
 
     MpePianoRollAudioProcessor& processor;
     Tool tool = Tool::draw;
@@ -123,6 +130,7 @@ private:
     DragMode dragMode = DragMode::none;
     juce::Uuid dragNoteId;
     int dragPointIndex = -1;
+    float shapeGrabY = 0.0f, shapeGrabVal = 0.0f;   // for the amplitude knobs
 
     juce::Point<float> marqueeA, marqueeB;
     std::vector<juce::Uuid> preMarqueeSelection;
@@ -137,8 +145,6 @@ private:
     struct EndOrigin { juce::Uuid id; double lengthBeats = 1.0; float endValue = 0.0f; };
     std::vector<EndOrigin> endOrigins;
 
-    static constexpr int lowestPitch = 24;
-    static constexpr int highestPitch = 96;
     static constexpr float pointRadius = 4.0f;
 
     static constexpr float defaultPixelsPerBeat = 80.0f;

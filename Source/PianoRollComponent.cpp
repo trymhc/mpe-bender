@@ -1,4 +1,5 @@
 #include "PianoRollComponent.h"
+#include "UiTheme.h"
 
 PianoRollComponent::PianoRollComponent(MpePianoRollAudioProcessor& processorToUse)
     : processor(processorToUse)
@@ -160,7 +161,7 @@ const MpeNote* PianoRollComponent::findNote(const std::vector<MpeNote>& snap, co
 
 namespace
 {
-    constexpr float shapeAmpMax = 12.0f;   // slider range, semitones
+    constexpr float shapeAmpMax = 12.0f;   // +/- one octave
     constexpr float shapeCycMax = 16.0f;
 
     float squeezeToNorm(float skew)   // skew 0.25..4  ->  0..1
@@ -189,32 +190,40 @@ PianoRollComponent::ShapeUI PianoRollComponent::shapeUIFor(const MpeNote& note) 
     s.wave = note.shape != BendShape::straight;
 
     const float midX = 0.5f * (s.x0 + s.x1);
-    const float below = juce::jmax(s.y0, s.y1) + rowHeight * 0.9f;
-    const float above = juce::jmin(s.y0, s.y1) - rowHeight * 0.9f;
 
-    // wheel (3 buttons) under the note
-    const float bw = 30.0f, bh = 15.0f, gap = 3.0f;
-    const float wy = below + 20.0f;
-    s.wStraight = { midX - bw * 1.5f - gap, wy, bw, bh };
-    s.wSine     = { midX - bw * 0.5f,       wy, bw, bh };
-    s.wTri      = { midX + bw * 0.5f + gap, wy, bw, bh };
+    // keep controls clear of the drawn curve: use the note's full pitch extent
+    const auto ext = pitchExtent(note);
+    const float drawnBot = s.wave ? yForPitch(ext.getStart()) : juce::jmax(s.y0, s.y1);
+    const float drawnTop = s.wave ? yForPitch(ext.getEnd())   : juce::jmin(s.y0, s.y1);
+
+    s.wheel  = { midX, drawnBot + (s.wave ? 40.0f : 24.0f) };
+    s.wheelR = 15.0f;
 
     if (s.wave)
     {
-        s.cyclesTrack  = { s.x0, below + 4.0f, s.x1 - s.x0, 6.0f };
-        s.squeezeTrack = { s.x0, above - 10.0f, s.x1 - s.x0, 6.0f };
-        s.ampStartTrack = { s.x0 - 16.0f, s.y0 - shapeAmpMax * rowHeight, 6.0f, shapeAmpMax * rowHeight };
-        s.ampEndTrack   = { s.x1 + 10.0f, s.y1 - shapeAmpMax * rowHeight, 6.0f, shapeAmpMax * rowHeight };
+        s.cyclesTrack  = { s.x0, drawnBot + 8.0f,  s.x1 - s.x0, 6.0f };
+        s.squeezeTrack = { s.x0, drawnTop - 16.0f, s.x1 - s.x0, 6.0f };
 
         const float cyN = juce::jlimit(0.0f, 1.0f, note.shapeCycles / shapeCycMax);
         s.cyclesH  = { s.x0 + cyN * (s.x1 - s.x0), s.cyclesTrack.getCentreY() };
         s.squeezeH = { s.x0 + squeezeToNorm(note.shapeSkew) * (s.x1 - s.x0), s.squeezeTrack.getCentreY() };
-        s.ampStartH = { s.ampStartTrack.getCentreX(),
-                        s.y0 - juce::jlimit(0.0f, shapeAmpMax, note.shapeAmpStart) * rowHeight };
-        s.ampEndH   = { s.ampEndTrack.getCentreX(),
-                        s.y1 - juce::jlimit(0.0f, shapeAmpMax, note.shapeAmpEnd) * rowHeight };
+
+        s.ampStartKnob = { s.x0 - 16.0f, s.y0 };
+        s.ampEndKnob   = { s.x1 + 16.0f, s.y1 };
     }
     return s;
+}
+
+int PianoRollComponent::wheelSliceAt(const ShapeUI& s, juce::Point<float> pos) const
+{
+    const auto d = pos - s.wheel;
+    if (d.x * d.x + d.y * d.y > s.wheelR * s.wheelR)
+        return -1;
+    // angle measured from 12 o'clock, clockwise
+    float a = std::atan2(d.x, -d.y);
+    if (a >= -juce::MathConstants<float>::pi / 3.0f && a < juce::MathConstants<float>::pi / 3.0f) return 0; // STR (top)
+    if (a >= juce::MathConstants<float>::pi / 3.0f) return 1;                                               // TRI (lower right)
+    return 2;                                                                                              // SIN (lower left)
 }
 
 void PianoRollComponent::setNoteShape(const juce::Uuid& id, BendShape shp)
@@ -309,30 +318,21 @@ void PianoRollComponent::updateMarquee(juce::Point<float> pos, const std::vector
 
 void PianoRollComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff000000));
+    g.fillAll(Theme::panel);
 
     const auto loopLen = processor.getLoopLengthBeats();
     const float h = (float) getHeight();
 
+    // note-area rows only (the keyboard column is a separate, non-scrolling overlay)
     for (int pitch = lowestPitch; pitch <= highestPitch; ++pitch)
     {
         auto yTop = (float) (highestPitch - pitch) * rowHeight;
-        const bool black = isBlackKey(pitch);
-
-        g.setColour(black ? juce::Colour(0xff0a0a0a) : juce::Colour(0xffd6d6d6));
-        g.fillRect(0.0f, yTop, (float) keyboardWidth, (float) rowHeight);
-        g.setColour(juce::Colours::black.withAlpha(pitch % 12 == 0 ? 0.22f : 0.12f));
-        g.drawHorizontalLine((int) yTop, 0.0f, (float) keyboardWidth);
-
-        g.setColour(black ? juce::Colour(0xff141414) : juce::Colour(0xff1e1e1e));
+        g.setColour(isBlackKey(pitch) ? Theme::rowDark : Theme::rowLight);
         g.fillRect((float) keyboardWidth, yTop, (float) getWidth() - keyboardWidth, (float) rowHeight);
-
         if (pitch % 12 == 0)
         {
-            g.setColour(juce::Colour(0xff000000));
-            g.setFont(9.0f);
-            g.drawText("C" + juce::String(pitch / 12 - 1), 2, (int) yTop, keyboardWidth - 4, (int) rowHeight,
-                       juce::Justification::centredLeft);
+            g.setColour(juce::Colours::black.withAlpha(0.22f));
+            g.drawHorizontalLine((int) yTop, (float) keyboardWidth, (float) getWidth());
         }
     }
 
@@ -342,11 +342,11 @@ void PianoRollComponent::paint(juce::Graphics& g)
         for (double b = step; b <= loopLen + 1.0e-6; b += step)
             g.drawVerticalLine((int) xForBeat(b), 0.0f, h);
     };
-    if (pixelsPerBeat * 0.25f >= 5.0f) verticals(0.25, juce::Colours::white.withAlpha(0.05f));
-    if (pixelsPerBeat        >= 5.0f) verticals(1.0,  juce::Colours::white.withAlpha(0.14f));
-    verticals(4.0, juce::Colours::white.withAlpha(0.28f));
+    if (pixelsPerBeat * 0.25f >= 5.0f) verticals(0.25, juce::Colours::black.withAlpha(0.10f));
+    if (pixelsPerBeat        >= 5.0f) verticals(1.0,  juce::Colours::black.withAlpha(0.22f));
+    verticals(4.0, juce::Colours::black.withAlpha(0.38f));
 
-    g.setColour(juce::Colours::white.withAlpha(0.45f));
+    g.setColour(juce::Colours::white.withAlpha(0.4f));
     g.drawVerticalLine((int) xForBeat(loopLen), 0.0f, h);
 
     std::vector<MpeNote> snapshot;
@@ -357,19 +357,19 @@ void PianoRollComponent::paint(juce::Graphics& g)
         juce::Path p;
         buildNotePath(n, p);
 
-        const juce::Colour base = n.isSounding ? juce::Colour(0xffb6f6f2)
-                                : selected       ? juce::Colour(0xff5fe4de)
-                                                 : juce::Colour(0xff1fbdb6);
+        const juce::Colour base = n.isSounding ? Theme::noteHot
+                                : selected       ? Theme::noteSel
+                                                 : Theme::note;
 
         constexpr auto joint = juce::PathStrokeType::curved;
         constexpr auto cap   = juce::PathStrokeType::butt;
 
         if (n.isSounding)
         {
-            g.setColour(juce::Colour(0xff5fe4de).withAlpha(0.22f));
+            g.setColour(Theme::noteSel.withAlpha(0.22f));
             g.strokePath(p, juce::PathStrokeType(selected ? 18.0f : 16.0f, joint, cap));
         }
-        g.setColour(juce::Colours::black.withAlpha(0.55f));
+        g.setColour(juce::Colours::black.withAlpha(0.5f));
         g.strokePath(p, juce::PathStrokeType(selected ? 12.0f : 10.0f, joint, cap));
         g.setColour(base.withAlpha(selected || n.isSounding ? 1.0f : 0.85f));
         g.strokePath(p, juce::PathStrokeType(selected ? 9.0f : 7.0f, joint, cap));
@@ -399,51 +399,95 @@ void PianoRollComponent::paint(juce::Graphics& g)
             auto s = shapeUIFor(*n);
             if (s.valid)
             {
-                auto pill = [&](juce::Rectangle<float> r, const juce::String& t, bool on)
+                const float twoPi = juce::MathConstants<float>::twoPi;
+                const float pi    = juce::MathConstants<float>::pi;
+
+                // --- 3-slice shape wheel (STR top, TRI lower-right, SIN lower-left) ---
+                auto sliceGlyph = [&](float midAng, BendShape which)
                 {
-                    g.setColour(on ? juce::Colour(0xff3c3c3c) : juce::Colour(0xff1c1c1c));
-                    g.fillRoundedRectangle(r, 2.0f);
-                    g.setColour(juce::Colours::white.withAlpha(0.16f));
-                    g.drawRoundedRectangle(r, 2.0f, 1.0f);
-                    g.setColour(juce::Colours::white.withAlpha(on ? 0.95f : 0.7f));
-                    g.setFont(10.0f);
-                    g.drawText(t, r, juce::Justification::centred);
+                    const float gx = s.wheel.x + std::sin(midAng) * s.wheelR * 0.55f;
+                    const float gy = s.wheel.y - std::cos(midAng) * s.wheelR * 0.55f;
+                    juce::Path gp;
+                    const float r = 5.0f;
+                    if (which == BendShape::straight)
+                    {
+                        gp.startNewSubPath(gx - r, gy); gp.lineTo(gx + r, gy);
+                    }
+                    else if (which == BendShape::triangle)
+                    {
+                        gp.startNewSubPath(gx - r, gy + r * 0.6f);
+                        gp.lineTo(gx, gy - r * 0.8f);
+                        gp.lineTo(gx + r, gy + r * 0.6f);
+                    }
+                    else
+                    {
+                        gp.startNewSubPath(gx - r, gy);
+                        for (int i = 1; i <= 12; ++i)
+                        {
+                            const float t = (float) i / 12.0f;
+                            gp.lineTo(gx - r + 2.0f * r * t, gy - std::sin(t * twoPi) * r * 0.8f);
+                        }
+                    }
+                    g.setColour(juce::Colours::white.withAlpha(0.9f));
+                    g.strokePath(gp, juce::PathStrokeType(1.3f));
                 };
-                pill(s.wStraight, "STR", n->shape == BendShape::straight);
-                pill(s.wSine,     "SIN", n->shape == BendShape::sine);
-                pill(s.wTri,      "TRI", n->shape == BendShape::triangle);
+
+                const float ranges[3][2] = { { -pi / 3.0f, pi / 3.0f }, { pi / 3.0f, pi }, { -pi, -pi / 3.0f } };
+                const BendShape slices[3] = { BendShape::straight, BendShape::triangle, BendShape::sine };
+                for (int i = 0; i < 3; ++i)
+                {
+                    juce::Path wedge;
+                    wedge.addPieSegment(s.wheel.x - s.wheelR, s.wheel.y - s.wheelR, s.wheelR * 2.0f, s.wheelR * 2.0f,
+                                        ranges[i][0], ranges[i][1], 0.0f);
+                    g.setColour(n->shape == slices[i] ? Theme::noteSel.withAlpha(0.85f) : Theme::field);
+                    g.fillPath(wedge);
+                    g.setColour(juce::Colours::black.withAlpha(0.4f));
+                    g.strokePath(wedge, juce::PathStrokeType(1.0f));
+                    sliceGlyph(0.5f * (ranges[i][0] + ranges[i][1]), slices[i]);
+                }
+                g.setColour(juce::Colours::black.withAlpha(0.5f));
+                g.drawEllipse(s.wheel.x - s.wheelR, s.wheel.y - s.wheelR, s.wheelR * 2.0f, s.wheelR * 2.0f, 1.0f);
 
                 if (s.wave)
                 {
-                    auto plainTrack = [&](juce::Rectangle<float> r, juce::Point<float> handle)
+                    auto slider = [&](juce::Rectangle<float> r, juce::Point<float> handle)
                     {
-                        g.setColour(juce::Colours::white.withAlpha(0.14f));
-                        if (r.getWidth() > r.getHeight())
-                            g.fillRect(r.withSizeKeepingCentre(r.getWidth(), 2.0f));
-                        else
-                            g.fillRect(r.withSizeKeepingCentre(2.0f, r.getHeight()));
-                        g.setColour(juce::Colour(0xff9a9a9a));
-                        g.fillEllipse(handle.x - 3.5f, handle.y - 3.5f, 7.0f, 7.0f);
-                        g.setColour(juce::Colours::black.withAlpha(0.6f));
-                        g.drawEllipse(handle.x - 3.5f, handle.y - 3.5f, 7.0f, 7.0f, 1.0f);
+                        g.setColour(juce::Colours::black.withAlpha(0.3f));
+                        g.fillRect(r.withSizeKeepingCentre(r.getWidth(), 2.0f));
+                        g.setColour(juce::Colour(0xffb0b0b0));
+                        g.fillEllipse(handle.x - 4.0f, handle.y - 4.0f, 8.0f, 8.0f);
+                        g.setColour(juce::Colours::black.withAlpha(0.55f));
+                        g.drawEllipse(handle.x - 4.0f, handle.y - 4.0f, 8.0f, 8.0f, 1.0f);
                     };
-                    plainTrack(s.cyclesTrack,   s.cyclesH);
-                    plainTrack(s.squeezeTrack,  s.squeezeH);
-                    plainTrack(s.ampStartTrack, s.ampStartH);
-                    plainTrack(s.ampEndTrack,   s.ampEndH);
+                    slider(s.cyclesTrack,  s.cyclesH);
+                    slider(s.squeezeTrack, s.squeezeH);
 
-                    // live value readout while dragging a shape control
+                    auto knob = [&](juce::Point<float> c, float value)   // value -12..+12
+                    {
+                        g.setColour(Theme::field);
+                        g.fillEllipse(c.x - s.knobR, c.y - s.knobR, s.knobR * 2.0f, s.knobR * 2.0f);
+                        g.setColour(juce::Colours::black.withAlpha(0.55f));
+                        g.drawEllipse(c.x - s.knobR, c.y - s.knobR, s.knobR * 2.0f, s.knobR * 2.0f, 1.0f);
+                        const float ang = juce::jmap(juce::jlimit(-shapeAmpMax, shapeAmpMax, value),
+                                                    -shapeAmpMax, shapeAmpMax, -2.4f, 2.4f);
+                        g.setColour(Theme::noteSel);
+                        g.drawLine(c.x, c.y, c.x + std::sin(ang) * (s.knobR - 2.0f),
+                                             c.y - std::cos(ang) * (s.knobR - 2.0f), 1.6f);
+                    };
+                    knob(s.ampStartKnob, n->shapeAmpStart);
+                    knob(s.ampEndKnob,   n->shapeAmpEnd);
+
                     juce::String rd;
-                    if (dragMode == DragMode::shapeCycles)     rd = juce::String(n->shapeCycles, 2) + " cyc";
+                    if (dragMode == DragMode::shapeCycles)         rd = juce::String(n->shapeCycles, 2) + " cyc";
                     else if (dragMode == DragMode::shapeSqueeze)   rd = "skew " + juce::String(n->shapeSkew, 2);
-                    else if (dragMode == DragMode::shapeAmpStart)  rd = juce::String(n->shapeAmpStart, 2) + " st";
-                    else if (dragMode == DragMode::shapeAmpEnd)    rd = juce::String(n->shapeAmpEnd, 2) + " st";
+                    else if (dragMode == DragMode::shapeAmpStart)  rd = "amp0 " + juce::String(n->shapeAmpStart, 1);
+                    else if (dragMode == DragMode::shapeAmpEnd)    rd = "amp1 " + juce::String(n->shapeAmpEnd, 1);
                     if (rd.isNotEmpty())
                     {
-                        g.setColour(juce::Colour(0xff222222));
-                        juce::Rectangle<float> box(0.5f * (s.x0 + s.x1) - 40.0f, juce::jmin(s.y0, s.y1) - 34.0f, 80.0f, 16.0f);
+                        juce::Rectangle<float> box(0.5f * (s.x0 + s.x1) - 42.0f, s.squeezeTrack.getY() - 20.0f, 84.0f, 16.0f);
+                        g.setColour(juce::Colour(0xff2a2a2a));
                         g.fillRoundedRectangle(box, 3.0f);
-                        g.setColour(juce::Colours::white.withAlpha(0.9f));
+                        g.setColour(Theme::text);
                         g.setFont(11.0f);
                         g.drawText(rd, box, juce::Justification::centred);
                     }
@@ -518,15 +562,17 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
             auto s = shapeUIFor(*n);
             if (s.valid)
             {
-                if (s.wStraight.contains(pos)) { setNoteShape(n->id, BendShape::straight); return; }
-                if (s.wSine.contains(pos))     { setNoteShape(n->id, BendShape::sine);     return; }
-                if (s.wTri.contains(pos))      { setNoteShape(n->id, BendShape::triangle); return; }
+                const int slice = wheelSliceAt(s, pos);
+                if (slice == 0) { setNoteShape(n->id, BendShape::straight); return; }
+                if (slice == 1) { setNoteShape(n->id, BendShape::triangle); return; }
+                if (slice == 2) { setNoteShape(n->id, BendShape::sine);     return; }
 
                 if (s.wave)
                 {
-                    auto grab = [&](juce::Rectangle<float> track, juce::Point<float> handle, DragMode m) -> bool
+                    auto grabH = [&](juce::Rectangle<float> track, juce::Point<float> handle, DragMode m) -> bool
                     {
-                        if (pos.getDistanceFrom(handle) <= 8.0f || track.expanded(6.0f).contains(pos))
+                        if (pos.getDistanceFrom(handle) <= 9.0f
+                            || track.expanded(0.0f, 7.0f).contains(pos))
                         {
                             dragMode = m;
                             dragNoteId = n->id;
@@ -535,10 +581,24 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
                         }
                         return false;
                     };
-                    if (grab(s.cyclesTrack,   s.cyclesH,   DragMode::shapeCycles))    return;
-                    if (grab(s.squeezeTrack,  s.squeezeH,  DragMode::shapeSqueeze))   return;
-                    if (grab(s.ampStartTrack, s.ampStartH, DragMode::shapeAmpStart))  return;
-                    if (grab(s.ampEndTrack,   s.ampEndH,   DragMode::shapeAmpEnd))    return;
+                    if (grabH(s.cyclesTrack,  s.cyclesH,  DragMode::shapeCycles))  return;
+                    if (grabH(s.squeezeTrack, s.squeezeH, DragMode::shapeSqueeze)) return;
+
+                    auto grabKnob = [&](juce::Point<float> c, DragMode m, float value) -> bool
+                    {
+                        if (pos.getDistanceFrom(c) <= s.knobR + 3.0f)
+                        {
+                            dragMode = m;
+                            dragNoteId = n->id;
+                            shapeGrabY = pos.y;
+                            shapeGrabVal = value;
+                            repaint();
+                            return true;
+                        }
+                        return false;
+                    };
+                    if (grabKnob(s.ampStartKnob, DragMode::shapeAmpStart, n->shapeAmpStart)) return;
+                    if (grabKnob(s.ampEndKnob,   DragMode::shapeAmpEnd,   n->shapeAmpEnd))   return;
                 }
             }
         }
@@ -761,17 +821,13 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
                 {
                     n.shapeSkew = normToSqueeze(juce::jlimit(0.0f, 1.0f, (pos.x - s.x0) / span));
                 }
-                else if (dragMode == DragMode::shapeAmpStart)
+                else   // amplitude knobs: drag up = louder, +/- one octave
                 {
-                    float a = juce::jlimit(0.0f, shapeAmpMax, (s.y0 - pos.y) / rowHeight);
+                    float a = shapeGrabVal + (shapeGrabY - pos.y) / 8.0f;
                     if (! fine) a = std::round(a * 2.0f) / 2.0f;
-                    n.shapeAmpStart = juce::jmin(a, range);
-                }
-                else
-                {
-                    float a = juce::jlimit(0.0f, shapeAmpMax, (s.y1 - pos.y) / rowHeight);
-                    if (! fine) a = std::round(a * 2.0f) / 2.0f;
-                    n.shapeAmpEnd = juce::jmin(a, range);
+                    a = juce::jlimit(-juce::jmin(shapeAmpMax, range), juce::jmin(shapeAmpMax, range), a);
+                    if (dragMode == DragMode::shapeAmpStart) n.shapeAmpStart = a;
+                    else                                     n.shapeAmpEnd = a;
                 }
                 break;
             }

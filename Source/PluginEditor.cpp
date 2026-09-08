@@ -12,6 +12,7 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     rollViewport.setViewedComponent(&pianoRoll, false);
     rollViewport.setScrollBarsShown(true, true);
     addAndMakeVisible(rollViewport);
+    addAndMakeVisible(keyboardSidebar);   // on top of the viewport's left edge
 
     addAndMakeVisible(zoomResetButton);
     zoomResetButton.onClick = [this] { pianoRoll.resetZoom(); };
@@ -153,7 +154,7 @@ void MpePianoRollAudioProcessorEditor::refreshHostedUi()
     const bool loaded = processor.getHostedPlugin().isLoaded();
 
     openHostedButton.setEnabled(loaded);
-    openHostedButton.setButtonText(hostedWindow != nullptr ? "Close synth UI" : "Open synth UI");
+    openHostedButton.setButtonText(hostedWindow != nullptr ? "Close synth" : "Open synth");
 
     hostedStatusLabel.setText(loaded ? "Synth: " + processor.getHostedPlugin().getDisplayName()
                                      : "Synth: none",
@@ -195,7 +196,7 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
 
 void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff0a0a0a));
+    g.fillAll(Theme::panel);
 }
 
 void MpePianoRollAudioProcessorEditor::resized()
@@ -231,4 +232,9 @@ void MpePianoRollAudioProcessorEditor::resized()
 
     rollViewport.setBounds(area);
     pianoRoll.updateContentSize();   // re-clamp zoom to the new viewport width
+
+    // frozen keyboard column over the viewport's left edge (above the h-scrollbar)
+    const int sbThick = rollViewport.getScrollBarThickness();
+    keyboardSidebar.setBounds(area.getX(), area.getY(),
+                              PianoRollComponent::keyboardWidth, area.getHeight() - sbThick);
 }
