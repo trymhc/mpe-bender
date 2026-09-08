@@ -32,10 +32,16 @@ Output: `build/MpePianoRoll_artefacts/Release/VST3/MPE Bender.vst3`
 
 ## Install
 
-Copy `MPE Bender.vst3` to a folder your DAW scans, e.g.
-`C:\Users\<you>\AppData\Local\Programs\Common\VST3\` (already done by the setup
-script) or `C:\Program Files\Common Files\VST3\` (needs admin). Then rescan
-plugins in your DAW.
+FL Studio only reliably scans the system folder `C:\Program Files\Common Files\VST3`
+(custom search paths were not picked up here). Writing there needs admin once:
+
+```powershell
+# elevated PowerShell (Win+X -> Terminal (Admin))
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Then in FL: **Options → Manage plugins → Find installed plugins**, search `bender`.
+It shows up as a **Synth**. Re-run `install.ps1` after each rebuild.
 
 ## Use it (FL Studio)
 
