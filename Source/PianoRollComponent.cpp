@@ -297,25 +297,6 @@ void PianoRollComponent::paint(juce::Graphics& g)
 //  Mouse
 // ---------------------------------------------------------------------------
 
-void PianoRollComponent::mouseMove(const juce::MouseEvent& e)
-{
-    auto cursor = juce::MouseCursor::NormalCursor;
-
-    if (e.position.x >= (float) keyboardWidth && ! e.mods.isAnyModifierKeyDown())
-    {
-        std::vector<MpeNote> snap;
-        processor.readNotes([&](const std::vector<MpeNote>& notes) { snap = notes; });
-        for (auto& n : snap)
-            if (nearRightEdge(n, e.position))
-            {
-                cursor = juce::MouseCursor::LeftRightResizeCursor;
-                break;
-            }
-    }
-
-    setMouseCursor(cursor);
-}
-
 void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
