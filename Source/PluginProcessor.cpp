@@ -335,6 +335,7 @@ void MpePianoRollAudioProcessor::processBlock(juce::AudioBuffer<float>& audioBuf
             if (wasPlaying)
                 hardResetPlayback(forSynth);   // release anything still sounding
             wasPlaying = false;
+            heldHostNotes = 0;   // forget stuck triggers when the transport stops
         }
         else
         {
