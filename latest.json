@@ -1,5 +1,5 @@
-{
-  "version": "0.3.0",
-  "download": "https://github.com/trymhc/mpe-bender/releases/download/v0.3.0/MPE-Bender-0.3.0.vst3.zip",
-  "notes": "First public build: light/dark themes, scale viewer, undo/redo, copy-paste, per-note mute, any-VST3 hosting with a synth quick-switch list, and this self-updater."
+﻿{
+    "version":  "0.3.1",
+    "download":  "https://github.com/trymhc/mpe-bender/releases/download/v0.3.1/MPE-Bender-0.3.1.vst3.zip",
+    "notes":  "prodcoldie watermark (editor credit + faint roll mark), plugin vendor name."
 }
