@@ -456,6 +456,11 @@ void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
         g.setColour(Theme::separator);
         g.fillRect(0, rollViewport.getY() - 3, getWidth(), 2);
     }
+
+    // "prodcoldie" credit, top-right of the tab bar
+    g.setColour(Theme::textDim);
+    g.setFont(11.0f);
+    g.drawText("prodcoldie", getWidth() - 98, 4, 92, 18, juce::Justification::centredRight);
 }
 
 void MpePianoRollAudioProcessorEditor::refreshUpdateUi()

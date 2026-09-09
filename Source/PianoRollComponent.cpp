@@ -701,6 +701,22 @@ void PianoRollComponent::paint(juce::Graphics& g)
         g.setColour(Theme::accent.withAlpha(0.85f));
         g.drawVerticalLine((int) x, 0.0f, h);
     }
+
+    // faint "prodcoldie" watermark, pinned to the visible area (doesn't scroll)
+    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
+    {
+        const float vx = (float) vp->getViewPositionX();
+        const float vy = (float) vp->getViewPositionY();
+        const float vw = (float) vp->getWidth();
+        const float vh = (float) vp->getHeight();
+        const float sb = (float) vp->getScrollBarThickness();
+        g.setColour(Theme::text.withAlpha(0.06f));
+        g.setFont(juce::jlimit(15.0f, 34.0f, vw / 14.0f));
+        g.drawText("prodcoldie",
+                   juce::Rectangle<float>(vx + keyboardWidth + 12.0f, vy + vh - sb - 40.0f,
+                                          vw - keyboardWidth - 24.0f - sb, 32.0f),
+                   juce::Justification::bottomRight);
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(MpePianoRoll VERSION 0.3.0)
+project(MpePianoRoll VERSION 0.3.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,7 +12,9 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_subdirectory(JUCE)
 
 juce_add_plugin(MpePianoRoll
-    COMPANY_NAME "YourStudio"
+    COMPANY_NAME "prodcoldie"
+    # NB: don't change PLUGIN_MANUFACTURER_CODE / PLUGIN_CODE - that changes the
+    # plugin's unique ID and breaks every project that already uses it.
     PLUGIN_MANUFACTURER_CODE Ystu
     PLUGIN_CODE Mpe2
     FORMATS VST3 Standalone

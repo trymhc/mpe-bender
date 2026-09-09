@@ -1,4 +1,5 @@
 MPE Bender  -  v0.3.0  (Windows 64-bit VST3)
+by prodcoldie
 ================================================
 
 What it is
@@ -88,3 +89,8 @@ Troubleshooting
 - Crash on load / "missing DLL": this build has the runtime baked in, but if a
   very old Windows still complains, install "Microsoft Visual C++ 2015-2022
   Redistributable (x64)" from Microsoft.
+
+
+--
+MPE Bender by prodcoldie.  Share it, don't sell it.
+https://github.com/trymhc/mpe-bender
