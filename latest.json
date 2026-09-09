@@ -1,5 +1,5 @@
-﻿{
-    "version":  "0.3.1",
-    "download":  "https://github.com/trymhc/mpe-bender/releases/download/v0.3.1/MPE-Bender-0.3.1.vst3.zip",
-    "notes":  "prodcoldie watermark (editor credit + faint roll mark), plugin vendor name."
+{
+    "version": "0.3.1",
+    "download": "https://github.com/trymhc/mpe-bender/releases/download/v0.3.1/MPE-Bender-0.3.1.vst3.zip",
+    "notes": "prodcoldie watermark (editor credit + faint roll mark), plugin vendor name."
 }

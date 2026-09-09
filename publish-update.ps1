@@ -98,7 +98,9 @@ Run $gh $ghArgs
 # --- manifest: rewrite, commit, push ---
 $manifest = [ordered]@{ version = $version; download = $download; notes = $notesText }
 $manifestPath = Join-Path $root 'latest.json'
-Set-Content -Path $manifestPath -Value (($manifest | ConvertTo-Json)) -Encoding utf8
+# UTF-8 *without* BOM - PS 5.1's `Set-Content -Encoding utf8` adds a BOM.
+[System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json) + "`n",
+    (New-Object System.Text.UTF8Encoding($false)))
 
 Run $git @('-C',$root,'add','latest.json') | Out-Null
 $pending = & $git -C $root status --porcelain latest.json
