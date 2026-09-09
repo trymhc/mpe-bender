@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(MpePianoRoll VERSION 0.2.0)
+project(MpePianoRoll VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Statically link the MSVC runtime so the shared .vst3 works on a friend's machine
+# without them installing the Visual C++ Redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_subdirectory(JUCE)
 
@@ -31,7 +35,15 @@ target_sources(MpePianoRoll
         Source/PluginEditor.cpp
         Source/PianoRollComponent.cpp
         Source/MpeEngine.cpp
-        Source/HostedPlugin.cpp)
+        Source/HostedPlugin.cpp
+        Source/UpdateChecker.cpp)
+
+# Point the built-in auto-updater at your hosted manifest, e.g.:
+#   cmake -S . -B build -DMPE_BENDER_UPDATE_URL="https://raw.githubusercontent.com/you/mpe-bender/main/latest.json"
+# Leave unset to disable auto-update (the Settings tab shows "not configured").
+if(DEFINED MPE_BENDER_UPDATE_URL)
+    target_compile_definitions(MpePianoRoll PRIVATE MPE_BENDER_UPDATE_MANIFEST_URL="${MPE_BENDER_UPDATE_URL}")
+endif()
 
 target_compile_definitions(MpePianoRoll
     PUBLIC

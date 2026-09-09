@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
+#include "Scale.h"
 #include <vector>
 #include <functional>
 
@@ -32,6 +33,7 @@ public:
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     bool keyPressed(const juce::KeyPress&) override;
@@ -42,6 +44,11 @@ public:
 
     float getRowHeight() const { return rowHeight; }
     bool isBlackKey(int pitch) const;
+
+    // for the keyboard sidebar's scale highlighting
+    int  scaleType() const { return processor.getScaleType(); }
+    int  scaleRoot() const { return processor.getScaleRoot(); }
+    bool scaleActive() const { return processor.getScaleType() != Scale::chromatic; }
 
     void zoomBoth(float factor, float anchorX, float anchorY);
     void resetZoom();
@@ -87,6 +94,14 @@ private:
         return std::round(delta / grid) * grid;
     }
 
+    int maybeSnapPitch(int pitch) const
+    {
+        if (processor.getSnapToScale() && processor.getScaleType() != Scale::chromatic)
+            return juce::jlimit(lowestPitch, highestPitch,
+                                Scale::snap(processor.getScaleType(), processor.getScaleRoot(), pitch));
+        return pitch;
+    }
+
     int pointIndexAt(const MpeNote& note, juce::Point<float> pos) const;
     bool ribbonHit(const MpeNote& note, juce::Point<float> pos) const;
     bool nearRightEdge(const MpeNote& note, juce::Point<float> pos) const;
@@ -99,6 +114,31 @@ private:
     void clearSelection();
     juce::Uuid soleSelection() const;
     void deleteSelected();
+    void eraseNoteAt(juce::Point<float> contentPos);   // right-click / right-drag erase
+    void toggleMuteSelected();
+    void copySelection();
+    void pasteClipboard();
+
+    // Every note mutation goes through this so one gesture = one undo step.
+    template <typename Fn>
+    void editNotes(Fn&& fn)
+    {
+        if (! gestureStashValid)
+        {
+            preGestureNotes = processor.snapshotNotes();
+            gestureStashValid = true;
+        }
+        processor.modifyNotes(std::forward<Fn>(fn));
+        gestureDidEdit = true;
+    }
+    void beginGesture() { gestureStashValid = false; gestureDidEdit = false; }
+    void endGesture()
+    {
+        if (gestureDidEdit && gestureStashValid)
+            processor.commitUndo(std::move(preGestureNotes));
+        gestureStashValid = false;
+        gestureDidEdit = false;
+    }
     void beginMoveNotes(juce::Point<float> pos, const std::vector<MpeNote>& snapshot);
     void updateMarquee(juce::Point<float> pos, const std::vector<MpeNote>& snapshot, bool additive);
 
@@ -126,6 +166,19 @@ private:
     Tool tool = Tool::draw;
 
     std::vector<juce::Uuid> selection;
+    std::vector<MpeNote> clipboard;                 // for Ctrl+C / Ctrl+V
+    std::vector<MpeNote> preGestureNotes;           // undo snapshot for the current gesture
+    bool gestureStashValid = false;
+    bool gestureDidEdit = false;
+
+    double hoverBeat = 0.0;
+    float  hoverPitch = 60.0f;
+
+    bool panning = false;                           // middle-drag scroll
+    juce::Point<int> panStartView;
+    juce::Point<float> panStartMouseScreen;
+
+    bool rightErasing = false;                       // right-button held to erase notes
 
     DragMode dragMode = DragMode::none;
     juce::Uuid dragNoteId;

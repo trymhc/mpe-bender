@@ -48,6 +48,11 @@ public:
     // Best guess at where Serum 2 is installed on this machine (may not exist).
     static juce::File findLikelySerumFile();
 
+    // The VST3 synth to auto-load on a fresh instance: the last one you loaded,
+    // else Serum 2 if it can be found. loadHostedPlugin() records the choice.
+    static juce::File rememberedSynthFile();
+    static void rememberSynthFile(const juce::File&);
+
     // --- Thread-safe access to the note list for the editor ---
     template <typename Fn>
     void modifyNotes(Fn&& fn)
@@ -63,6 +68,18 @@ public:
         fn(notes);
     }
 
+    // --- Undo / redo (snapshot-based; the editor drives it) ---
+    std::vector<MpeNote> snapshotNotes() const
+    {
+        juce::ScopedLock sl(notesLock);
+        return notes;
+    }
+    void commitUndo(std::vector<MpeNote> before);   // push a pre-edit snapshot, clears redo
+    bool undo();
+    bool redo();
+    bool canUndo() const { return ! undoStack.empty(); }
+    bool canRedo() const { return ! redoStack.empty(); }
+
     void setLoopLengthBeats(double beats);
     double getLoopLengthBeats() const { return loopLengthBeats; }
 
@@ -76,6 +93,18 @@ public:
     // so you can still play Serum from a keyboard / host clip.
     void setForwardHostMidi(bool shouldForward) { forwardHostMidi = shouldForward; }
     bool getForwardHostMidi() const { return forwardHostMidi; }
+
+    // UI theme index (see Theme::Id). Stored with the project; the editor applies it.
+    void setThemeId(int id) { themeId = id; }
+    int getThemeId() const { return themeId; }
+
+    // --- Scale viewer (stored with the project) ---
+    void setScaleRoot(int r)   { scaleRoot = ((r % 12) + 12) % 12; }
+    void setScaleType(int t)   { scaleType = t; }
+    void setSnapToScale(bool s){ snapToScale = s; }
+    int  getScaleRoot() const  { return scaleRoot; }
+    int  getScaleType() const  { return scaleType; }
+    bool getSnapToScale() const { return snapToScale; }
 
     double getUiPlayheadBeat() const { return uiPlayheadBeat.load(std::memory_order_relaxed); }
     bool getUiIsPlaying() const { return uiIsPlaying.load(std::memory_order_relaxed); }
@@ -113,6 +142,17 @@ private:
     int configResends = 0;
     int configResendCountdown = 0;
     std::atomic<bool> forwardHostMidi { true };
+    int themeId = 0;   // Theme::Id::light
+    bool pendingAutoLoad = true;   // message-thread only; see handleAsyncUpdate
+
+    int scaleRoot = 0;         // 0 = C
+    int scaleType = 0;         // Scale::chromatic (viewer off)
+    bool snapToScale = false;
+
+    // undo/redo snapshots (message-thread only)
+    std::vector<std::vector<MpeNote>> undoStack, redoStack;
+    static constexpr size_t maxUndo = 128;
+    std::atomic<bool> pendingHardReset { false };   // set by undo/redo, consumed in processBlock
 
     // Deferred hosted-plugin load, set by setStateInformation and consumed on the
     // message thread in handleAsyncUpdate().

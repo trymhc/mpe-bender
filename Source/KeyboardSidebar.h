@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PianoRollComponent.h"
+#include "Scale.h"
 #include "UiTheme.h"
 
 // The piano-key column. Lives OUTSIDE the roll's viewport (overlaid on its left
@@ -34,19 +35,32 @@ public:
             const bool black = roll.isBlackKey(pitch);
             g.setColour(black ? Theme::blackKey : Theme::whiteKey);
             g.fillRect(0.0f, yTop, (float) getWidth(), rh);
-            g.setColour(juce::Colours::black.withAlpha(pitch % 12 == 0 ? 0.28f : 0.14f));
+
+            g.setColour(Theme::gridLine.withAlpha(pitch % 12 == 0 ? 0.16f : 0.08f));
             g.drawHorizontalLine((int) yTop, 0.0f, (float) getWidth());
 
-            if (pitch % 12 == 0)
+            // mark the scale's root note with a wedge on the right edge of the keys
+            if (roll.scaleActive() && (((pitch - roll.scaleRoot()) % 12 + 12) % 12) == 0)
             {
-                g.setColour(juce::Colour(0xff202020));
+                const float m = juce::jmin(rh * 0.5f, 6.0f);
+                const float cx = (float) getWidth() - 1.0f;
+                const float cy = yTop + rh * 0.5f;
+                juce::Path tri;
+                tri.addTriangle(cx, cy - m, cx, cy + m, cx - m, cy);
+                g.setColour(Theme::accent);
+                g.fillPath(tri);
+            }
+
+            if (pitch % 12 == 0 && ! black)
+            {
+                g.setColour(Theme::textDim);
                 g.setFont(9.0f);
                 g.drawText("C" + juce::String(pitch / 12 - 1), 2, (int) yTop, getWidth() - 4, (int) rh,
                            juce::Justification::centredLeft);
             }
         }
 
-        g.setColour(juce::Colours::black.withAlpha(0.35f));
+        g.setColour(Theme::separator);
         g.drawVerticalLine(getWidth() - 1, 0.0f, (float) getHeight());
     }
 

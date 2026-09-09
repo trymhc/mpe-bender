@@ -65,11 +65,17 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
 ## Use it (FL Studio)
 
 1. Add `MPE Bender` on a channel as an **instrument** (not an effect).
-2. Click **Load Serum 2…** – it auto‑points at
-   `C:\Program Files\Common Files\VST3\Serum2.vst3`. Pick the `.vst3`.
-3. Click **Open synth UI** to show Serum's own window. In Serum 2, **turn on MPE**
-   and set its pitch‑bend range to match the **PB Range** slider here (default 48
-   semitones).
+2. It **auto-loads a synth** on a fresh instance — the last VST3 instrument you
+   loaded, or Serum 2 if it can find it. Everything runs off the **synth menu** on
+   the toolbar: **Load new synth…** picks any `.vst3` instrument (Serum, Vital,
+   Pigments, Massive X, Diva, Surge XT, …) and offers to save it to the list with a
+   name you choose. After that the menu is your quick-switch list — pick an entry to
+   load it instantly; rename / remove entries from the bottom of the menu. The list
+   lives at `%APPDATA%\MPE Bender\synths.xml` and is shared by all instances.
+3. Click **Open synth** to show the hosted synth's own window. **Turn on that synth's
+   MPE mode** and set its pitch‑bend range to match the **Pitch-bend range** on the
+   Settings tab (default 48). Without MPE the synth still plays, but every sounding
+   note shares one bend instead of bending independently.
 4. Two tools, toggled in the toolbar or with **b** / **s** (like FL's piano roll):
 
    **Draw** (b):
@@ -77,7 +83,9 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
    - **drag the right edge** = the note's end bend point: horizontal changes length,
      vertical bends the tail (one 2D handle)
    - **Ctrl+click** or **double‑click** the ribbon = add a **bend point**; drag points
-     to shape the note's straight‑line "chord". **right‑click** a point = remove it.
+     to shape the note's straight‑line "chord".
+   - **right‑click** = deselect everything; **right‑click + drag** across notes = erase
+     them. Right‑click a bend point of the selected note = remove that point.
    - hold **Alt** while dragging = fine / no snap; **Shift**+drag = Select for that drag
 
    **The shape editor** — select one note and controls appear around it:
@@ -93,8 +101,18 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
      move the group; **drag a selected right edge** = resize the group;
      **Delete** / **Esc**.
 
-   **Zoom**: `-` / `+` / `1:1` buttons, or **Ctrl+scroll** (horizontal, around the
-   cursor) and **Ctrl+Shift+scroll** (vertical).
+   **Zoom / navigate**: the **1:1** button (bottom-right), **Ctrl+scroll** =
+   zoom both axes around the cursor, **middle-mouse drag** = pan the roll.
+
+   **Editing shortcuts** (piano roll focused):
+   - **Ctrl+Z** undo, **Ctrl+Shift+Z** / **Ctrl+Y** redo
+   - **Ctrl+C** / **Ctrl+X** / **Ctrl+V** copy / cut / paste (paste lands at the mouse)
+   - **Shift**+drag a note = duplicate it (or the whole selection)
+   - **M** = mute / unmute the selected notes (muted notes draw hollow and are skipped)
+
+   **Scale viewer** (Roll toolbar, next to Loop): pick a **root** + **scale** and the
+   in-scale rows show bright while out-of-scale rows go dark; the root note is marked
+   on the piano keys. **Snap** forces new / moved notes onto scale degrees.
 5. Press play in FL. The plugin loops its own pattern (**Loop (beats)** slider),
    synced to the host tempo/position, and plays Serum with the per‑note bends.
 
@@ -103,13 +121,38 @@ keyboard straight through to Serum, so you can still play it normally.
 
 ## Notes / limits
 
-- Per‑note bend needs the hosted synth in **MPE mode**. Serum 2 supports it.
+- **Any VST3 instrument** can be hosted, not just Serum. Per‑note *independent* bend
+  needs the synth in **MPE mode** (own channel + pitch bend per note): Serum 2, Vital,
+  Pigments, Massive X, Diva/Repro, Surge XT, Ableton stock, and most modern synths do.
+  A non‑MPE synth still works but bends are shared across its voices. VST2‑ and
+  AU‑only synths aren't supported (VST3 host only).
 - `MPE Channels` = how many member channels (voices) can bend independently at
   once (max 14). Notes beyond that steal the oldest voice.
 - Project state saves the Serum path **and** Serum's current patch, so reopening
   a project restores everything.
 - Hosting a VST inside a VST is allowed and works in FL Studio; a few other DAWs
   sandbox plugins in ways that can make the nested editor flaky.
+
+## Auto-update (for sharing with friends)
+
+MPE Bender can update itself. On startup (throttled to once/day) it fetches a small
+`latest.json`, and if a newer version is published it downloads the new `.vst3` and
+stages it; the **Settings → Updates** panel shows the status and an **Install update**
+button. Installing launches a tiny detached script that copies the new bundle into
+place **as soon as every DAW using the plugin is closed**, so the next launch is the
+new version. Nothing happens mid-session and nothing needs admin.
+
+To turn it on for your builds:
+
+1. Bump `project(MpePianoRoll VERSION x.y.z)` in `CMakeLists.txt`.
+2. `powershell -ExecutionPolicy Bypass -File publish-update.ps1 -BaseUrl "<host>" -Notes "..."`
+   → produces `dist/MPE Bender-x.y.z.vst3.zip` + `dist/latest.json`.
+3. Upload both to `<host>` (a GitHub Release works well).
+4. Build the copies you hand out **once** with the manifest URL baked in:
+   `cmake -S . -B build -DMPE_BENDER_UPDATE_URL="https://.../latest.json"`
+
+Without `-DMPE_BENDER_UPDATE_URL` the updater is inert and the panel says
+"Auto-update not configured".
 
 ## Source map
 
@@ -119,6 +162,10 @@ keyboard straight through to Serum, so you can still play it normally.
 | `Source/MpeEngine.*` | notes → MPE MIDI (note-on/off + per-note pitch bend), channel allocation |
 | `Source/HostedPlugin.*` | load / prepare / run a VST3 instance (Serum 2) |
 | `Source/HostedPluginWindow.h` | floating window for the hosted synth's editor |
-| `Source/PluginProcessor.*` | transport, loop playback, state, wiring |
-| `Source/PluginEditor.*` | toolbar + hosted‑synth controls |
+| `Source/PluginProcessor.*` | transport, loop playback, state, undo/redo, wiring |
+| `Source/PluginEditor.*` | Roll / Settings tabs, hosted‑synth controls, scale + update UI |
 | `Source/PianoRollComponent.*` | the note grid; notes drawn/edited as pitch ribbons |
+| `Source/KeyboardSidebar.h` | the frozen piano‑key column + scale highlight |
+| `Source/Scale.h` | scale masks / names for the scale viewer |
+| `Source/UiTheme.h` | Light / Graphite / Dark palettes + `FlatLookAndFeel` |
+| `Source/UpdateChecker.*` | background version check + staged self-install |

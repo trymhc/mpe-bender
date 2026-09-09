@@ -5,37 +5,40 @@
 #include <algorithm>
 #include <cmath>
 
-// A bend point in a note's pitch curve. Points are joined by straight lines to
-// form the note's "chord"; a parametric shape (see MpeNote::shape) can then ride
-// on top of that chord.
+// A node in a note's pitch curve. `shaper` nodes are "diamonds" - they bow the
+// otherwise-straight line between the surrounding bend points; non-shaper nodes
+// are the hard bend points that the curve passes through with a corner.
 struct CurvePoint
 {
     double beat = 0.0;    // position relative to the note's start, in beats
     float value = 0.0f;   // semitone offset from the note's base pitch
+    bool shaper = false;
 };
 
-// Piecewise-linear pitch envelope through a set of bend points.
+// Pitch envelope: straight between hard bend points, Catmull-Rom through any run
+// of bendPoint -> shapers... -> bendPoint.
 class ExpressionCurve
 {
 public:
     explicit ExpressionCurve(float defaultValue = 0.0f) : defaultVal(defaultValue)
     {
-        points.push_back({ 0.0, defaultValue });
+        points.push_back({ 0.0, defaultValue, false });
     }
 
     float defaultValue() const { return defaultVal; }
     const std::vector<CurvePoint>& getPoints() const { return points; }
     int size() const { return (int) points.size(); }
+    bool isShaper(int i) const { return i >= 0 && i < (int) points.size() && points[(size_t) i].shaper; }
 
     void clearAndReset()
     {
         points.clear();
-        points.push_back({ 0.0, defaultVal });
+        points.push_back({ 0.0, defaultVal, false });
     }
 
-    int addPoint(double beat, float value)
+    int addPoint(double beat, float value, bool shaper = false)
     {
-        CurvePoint p { std::max(0.0, beat), value };
+        CurvePoint p { std::max(0.0, beat), value, shaper };
         auto insertAt = std::upper_bound(points.begin(), points.end(), p,
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
         auto it = points.insert(insertAt, p);
@@ -50,8 +53,9 @@ public:
         if (index == 0)
             beat = 0.0;
 
+        const bool keepShaper = points[(size_t) index].shaper;
         const double nb = std::max(0.0, beat);
-        points[(size_t) index] = { nb, value };
+        points[(size_t) index] = { nb, value, keepShaper };
         std::stable_sort(points.begin(), points.end(),
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
 
@@ -81,31 +85,31 @@ public:
     double conformEnd(double lengthBeats)
     {
         if (points.empty())
-            points.push_back({ 0.0, defaultVal });
+            points.push_back({ 0.0, defaultVal, false });
 
         if ((int) points.size() < 2)
         {
-            points.push_back({ std::max(0.25, lengthBeats), points.back().value });
+            points.push_back({ std::max(0.25, lengthBeats), points.back().value, false });
             return points.back().beat;
         }
 
+        points.back().shaper = false;
         if (points.back().beat < lengthBeats - 1.0e-6)
         {
-            points.push_back({ lengthBeats, points.back().value });
+            points.push_back({ lengthBeats, points.back().value, false });
             return lengthBeats;
         }
         return points.back().beat;
     }
 
-    void setPoint(double beat, float value)
+    void setPoint(double beat, float value, bool shaper = false)
     {
         beat = std::max(0.0, beat);
         for (auto& p : points)
-            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; return; }
-        addPoint(beat, value);
+            if (std::abs(p.beat - beat) < 1.0e-6) { p.value = value; p.shaper = shaper; return; }
+        addPoint(beat, value, shaper);
     }
 
-    // Linear value at a beat offset from the note start (holds the end values).
     float sample(double beat) const
     {
         if (points.empty())
@@ -127,7 +131,22 @@ public:
         if (span < 1.0e-9)
             return R.value;
         const float t = (float) ((beat - L.beat) / span);
-        return L.value + t * (R.value - L.value);
+
+        if (! L.shaper && ! R.shaper)
+            return L.value + t * (R.value - L.value);   // straight segment
+
+        // curved run: widen to the enclosing hard points, Catmull-Rom in value
+        int a = (int) i;
+        while (a > 0 && points[(size_t) a].shaper) --a;
+        int b = (int) i + 1;
+        while (b < (int) points.size() - 1 && points[(size_t) b].shaper) ++b;
+
+        auto V = [&](int idx) { return points[(size_t) std::min(std::max(idx, a), b)].value; };
+        const float p0 = V((int) i - 1), p1 = V((int) i), p2 = V((int) i + 1), p3 = V((int) i + 2);
+        const float t2 = t * t, t3 = t2 * t;
+        return 0.5f * ((2.0f * p1) + (-p0 + p2) * t
+                     + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2
+                     + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
     }
 
 private:
@@ -161,6 +180,8 @@ struct MpeNote
     float shapeAmpEnd   = 2.0f;    // wave amplitude (semitones) at the end point
 
     float shapeCycleCount() const { return juce::jmax(1.0f, shapeCycles); }
+
+    bool muted = false;   // skipped by the engine; drawn hollow in the roll
 
     int assignedChannel = -1;
     bool isSounding = false;

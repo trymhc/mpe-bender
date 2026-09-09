@@ -1,0 +1,90 @@
+MPE Bender  -  v0.3.0  (Windows 64-bit VST3)
+================================================
+
+What it is
+----------
+An instrument plugin that hosts your own synth (Serum 2, Vital, Pigments, ...)
+inside it and drives it from a built-in piano roll where every note carries its
+own pitch curve. Each note goes out on its own MPE channel, so the bends are
+independent per note - draw a note that slides from one key to another while
+other notes hold steady, add sine/triangle vibrato per note, etc.
+
+
+Requirements
+------------
+- Windows 10/11, 64-bit
+- A VST3 host (FL Studio, Ableton Live, Reaper, Bitwig, Cubase, Studio One, ...)
+- Your own VST3 synth to put inside it. For the per-note bends to be truly
+  independent the synth needs an "MPE" mode (Serum 2, Vital, Pigments, Massive X,
+  Diva, Repro, Surge XT, Ableton stock instruments, and most modern synths have it).
+
+
+Install
+-------
+1. Copy the folder
+
+       MPE Bender.vst3
+
+   into
+
+       C:\Program Files\Common Files\VST3\
+
+   (You may need to click "Continue" for administrator permission. That folder is
+   where every DAW looks for VST3 plugins.)
+
+2. In your DAW, rescan / refresh plugins:
+     - FL Studio:  Options > Manage plugins > "Find installed plugins"
+     - Ableton:    Preferences > Plug-Ins > Rescan
+     - Reaper:     Preferences > VST > Re-scan
+     - others:     the plugin manager / preferences has a "rescan" button
+
+3. Add "MPE Bender" to a track AS AN INSTRUMENT (not an audio effect).
+   Manufacturer shows as "YourStudio", category Instrument / Synth.
+
+
+Using it
+--------
+1. Open MPE Bender's window. Use the synth menu on the toolbar:
+   "Load new synth..." -> pick your synth's .vst3 (it'll offer to save it to the
+   menu with a name, so next time it's one click). A fresh instance also tries to
+   auto-load the last synth you used.
+
+2. Click "Open synth" to show your synth's own window. Turn ON its MPE mode and
+   set its pitch-bend range to match "Pitch-bend range" on MPE Bender's Settings
+   tab (default 48 semitones). Without MPE the synth still plays, but all its
+   notes share one bend instead of bending independently.
+
+3. Draw notes in the roll. Basics:
+     b / s            switch Draw / Select tools
+     drag a note body   move it;  drag its right edge   length + tail bend
+     Ctrl+click / dbl-click a note   add a bend point;  drag points to shape it
+     select one note    a shape wheel appears (straight / sine / triangle) with
+                        cycles / skew / start+end amplitude controls
+     right-click        deselect;  right-click + drag   erase notes
+     Ctrl+Z / Ctrl+C / Ctrl+V   undo / copy / paste
+     M                  mute / unmute selected notes
+     middle-drag        pan;  Ctrl+scroll   zoom
+   Scale menu on the toolbar highlights a scale in the roll.
+
+4. Press play in your DAW. MPE Bender loops its own pattern (Loop bars on the
+   toolbar), synced to the host tempo, and plays your synth with the per-note
+   bends. Project state saves your synth choice + its patch.
+
+
+Updates
+-------
+Settings tab > Updates. If the person who built this hosted an update feed it
+will check on startup and offer to self-install on the next DAW restart. If it
+says "Auto-update not configured", just ask them for a new zip.
+
+
+Troubleshooting
+---------------
+- Doesn't show up after rescan: make sure you copied the FULL "MPE Bender.vst3"
+  folder (not just a file inside it) into C:\Program Files\Common Files\VST3\, and
+  that you rescanned. Some DAWs need you to add that path in their VST3 settings.
+- Notes bend together instead of independently: the hosted synth isn't in MPE
+  mode, or its pitch-bend range doesn't match MPE Bender's.
+- Crash on load / "missing DLL": this build has the runtime baked in, but if a
+  very old Windows still complains, install "Microsoft Visual C++ 2015-2022
+  Redistributable (x64)" from Microsoft.

@@ -187,6 +187,13 @@ void MpeEngine::renderBlock(std::vector<MpeNote>& notes,
 {
     for (auto& note : notes)
     {
+        if (note.muted)
+        {
+            if (note.isSounding)
+                triggerNoteOff(note, buffer, blockStartBeat, samplesPerBeat);
+            continue;
+        }
+
         if (!note.isSounding)
         {
             if (note.startBeat >= blockStartBeat && note.startBeat < blockEndBeat)

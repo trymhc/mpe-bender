@@ -26,6 +26,35 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     b.pitch = 64;
     b.lengthBeats = b.bend.conformEnd(2.0);
     notes.push_back(b);
+
+    // Try to bring up a synth on its own (the last one you used, else Serum 2), so a
+    // fresh instance is ready to play without clicking "Load ...". Deferred to the
+    // message thread (can't create a VST3 instance here); skipped if the host
+    // restores a saved synth first.
+    triggerAsyncUpdate();
+}
+
+juce::File MpePianoRollAudioProcessor::rememberedSynthFile()
+{
+    auto f = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                 .getChildFile("MPE Bender").getChildFile("last_synth.txt");
+    if (f.existsAsFile())
+    {
+        juce::File synth(f.loadFileAsString().trim());
+        if (synth.exists())
+            return synth;
+    }
+    return {};
+}
+
+void MpePianoRollAudioProcessor::rememberSynthFile(const juce::File& synth)
+{
+    if (synth == juce::File())
+        return;
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                   .getChildFile("MPE Bender");
+    dir.createDirectory();
+    dir.getChildFile("last_synth.txt").replaceWithText(synth.getFullPathName());
 }
 
 bool MpePianoRollAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -90,11 +119,13 @@ juce::File MpePianoRollAudioProcessor::findLikelySerumFile()
 
 juce::String MpePianoRollAudioProcessor::loadHostedPlugin(const juce::File& vst3File)
 {
+    pendingAutoLoad = false;
     auto err = hostedPlugin.load(vst3File, currentSampleRate, currentBlockSize);
     if (err.isEmpty())
     {
         hostedPlugin.setPlayHead(getPlayHead());
         zoneConfigSent = false;   // (re)announce MPE to the freshly loaded synth
+        rememberSynthFile(vst3File);
     }
     return err;
 }
@@ -108,23 +139,48 @@ void MpePianoRollAudioProcessor::handleAsyncUpdate()
 {
     juce::File file;
     juce::MemoryBlock hostedState;
+    bool havePending = false;
 
     {
         const juce::ScopedLock sl(pendingLock);
-        if (! hasPendingHostedLoad)
-            return;
-        file = pendingHostedFile;
-        hostedState = pendingHostedState;
-        hasPendingHostedLoad = false;
+        havePending = hasPendingHostedLoad;
+        if (havePending)
+        {
+            file = pendingHostedFile;
+            hostedState = pendingHostedState;
+            hasPendingHostedLoad = false;
+        }
     }
 
-    if (file == juce::File())
+    // The host is restoring a saved synth (with its patch): honour it.
+    if (havePending && file != juce::File())
+    {
+        pendingAutoLoad = false;
+        auto err = hostedPlugin.loadWithState(file, currentSampleRate, currentBlockSize, hostedState);
+        juce::ignoreUnused(err);
+        hostedPlugin.setPlayHead(getPlayHead());
+        zoneConfigSent = false;
         return;
+    }
 
-    auto err = hostedPlugin.loadWithState(file, currentSampleRate, currentBlockSize, hostedState);
-    juce::ignoreUnused(err);
-    hostedPlugin.setPlayHead(getPlayHead());
-    zoneConfigSent = false;
+    // Fresh instance, nothing to restore: auto-load a synth once - the last one you
+    // used, else Serum 2 if it can be found. Any VST3 instrument works.
+    if (pendingAutoLoad && ! hostedPlugin.isLoaded())
+    {
+        pendingAutoLoad = false;
+        auto synth = rememberedSynthFile();
+        if (synth == juce::File())
+            synth = findLikelySerumFile();
+        if (synth != juce::File())
+        {
+            auto e = hostedPlugin.load(synth, currentSampleRate, currentBlockSize);
+            if (e.isEmpty())
+            {
+                hostedPlugin.setPlayHead(getPlayHead());
+                zoneConfigSent = false;
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +202,54 @@ void MpePianoRollAudioProcessor::setNumMemberChannels(int numChannels)
 {
     engine.setNumMemberChannels(numChannels);
     zoneConfigSent = false;
+}
+
+// ---------------------------------------------------------------------------
+//  Undo / redo
+// ---------------------------------------------------------------------------
+
+void MpePianoRollAudioProcessor::commitUndo(std::vector<MpeNote> before)
+{
+    undoStack.push_back(std::move(before));
+    if (undoStack.size() > maxUndo)
+        undoStack.erase(undoStack.begin());
+    redoStack.clear();
+}
+
+bool MpePianoRollAudioProcessor::undo()
+{
+    if (undoStack.empty())
+        return false;
+
+    auto restore = std::move(undoStack.back());
+    undoStack.pop_back();
+
+    {
+        juce::ScopedLock sl(notesLock);
+        redoStack.push_back(notes);
+        for (auto& n : restore) { n.isSounding = false; n.assignedChannel = -1; }
+        notes = std::move(restore);
+    }
+    pendingHardReset.store(true, std::memory_order_relaxed);
+    return true;
+}
+
+bool MpePianoRollAudioProcessor::redo()
+{
+    if (redoStack.empty())
+        return false;
+
+    auto restore = std::move(redoStack.back());
+    redoStack.pop_back();
+
+    {
+        juce::ScopedLock sl(notesLock);
+        undoStack.push_back(notes);
+        for (auto& n : restore) { n.isSounding = false; n.assignedChannel = -1; }
+        notes = std::move(restore);
+    }
+    pendingHardReset.store(true, std::memory_order_relaxed);
+    return true;
 }
 
 void MpePianoRollAudioProcessor::hardResetPlayback(juce::MidiBuffer& midiBuffer)
@@ -176,6 +280,9 @@ void MpePianoRollAudioProcessor::processBlock(juce::AudioBuffer<float>& audioBuf
     juce::MidiBuffer forSynth;
     if (forwardHostMidi.load(std::memory_order_relaxed))
         forSynth.addEvents(midiBuffer, 0, numSamples, 0);
+
+    if (pendingHardReset.exchange(false, std::memory_order_relaxed))
+        hardResetPlayback(forSynth);   // undo/redo swapped the note list out from under the engine
 
     // ---- generate MPE MIDI from the piano roll, driven by the host transport ----
     auto* transport = getPlayHead();
@@ -300,6 +407,10 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
     state.setProperty("pitchBendRange", engine.getPitchBendRangeSemitones(), nullptr);
     state.setProperty("numMemberChannels", engine.getNumMemberChannels(), nullptr);
     state.setProperty("forwardHostMidi", forwardHostMidi.load(std::memory_order_relaxed), nullptr);
+    state.setProperty("themeId", themeId, nullptr);
+    state.setProperty("scaleRoot", scaleRoot, nullptr);
+    state.setProperty("scaleType", scaleType, nullptr);
+    state.setProperty("snapToScale", snapToScale, nullptr);
 
     if (hostedPlugin.isLoaded())
     {
@@ -322,6 +433,7 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
             nt.setProperty("pitch", n.pitch, nullptr);
             nt.setProperty("velocity", n.velocity, nullptr);
             nt.setProperty("releaseVelocity", n.releaseVelocity, nullptr);
+            if (n.muted) nt.setProperty("muted", 1, nullptr);
             nt.setProperty("shape", (int) n.shape, nullptr);
             nt.setProperty("shapeCycles", n.shapeCycles, nullptr);
             nt.setProperty("shapeSkew", n.shapeSkew, nullptr);
@@ -334,6 +446,8 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
                 juce::ValueTree pt("Pt");
                 pt.setProperty("beat", p.beat, nullptr);
                 pt.setProperty("value", p.value, nullptr);
+                if (p.shaper)
+                    pt.setProperty("shaper", 1, nullptr);
                 ct.appendChild(pt, nullptr);
             }
             nt.appendChild(ct, nullptr);
@@ -361,7 +475,13 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
     engine.setPitchBendRangeSemitones((int) state.getProperty("pitchBendRange", 48));
     engine.setNumMemberChannels((int) state.getProperty("numMemberChannels", 14));
     forwardHostMidi.store((bool) state.getProperty("forwardHostMidi", true), std::memory_order_relaxed);
+    themeId = (int) state.getProperty("themeId", 0);
+    scaleRoot = ((((int) state.getProperty("scaleRoot", 0)) % 12) + 12) % 12;
+    scaleType = (int) state.getProperty("scaleType", 0);
+    snapToScale = (bool) state.getProperty("snapToScale", false);
     zoneConfigSent = false;
+    undoStack.clear();
+    redoStack.clear();
 
     std::vector<MpeNote> loaded;
     auto notesTree = state.getChildWithName("Notes");
@@ -375,6 +495,7 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
         n.pitch = nt.getProperty("pitch", 60);
         n.velocity = (float) (double) nt.getProperty("velocity", 0.8);
         n.releaseVelocity = (float) (double) nt.getProperty("releaseVelocity", 0.5);
+        n.muted = (bool) nt.getProperty("muted", false);
         n.shape = (BendShape) (int) nt.getProperty("shape", 0);
         n.shapeCycles = (float) (double) nt.getProperty("shapeCycles", 4.0);
         if (auto p = nt.getProperty("shapeCyclePeriod", juce::var()); ! p.isVoid())   // 0.8-only field -> count
@@ -394,7 +515,8 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
             {
                 auto pt = ct.getChild(p);
                 curve.setPoint((double) pt.getProperty("beat", 0.0),
-                               (float) (double) pt.getProperty("value", 0.0));
+                               (float) (double) pt.getProperty("value", 0.0),
+                               (bool) pt.getProperty("shaper", false));
             }
         };
 

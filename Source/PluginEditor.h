@@ -6,7 +6,10 @@
 #include "KeyboardSidebar.h"
 #include "HostedPluginWindow.h"
 #include "UiTheme.h"
+#include "UpdateChecker.h"
+#include "SynthLibrary.h"
 #include <memory>
+#include <functional>
 
 class MpePianoRollAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                 private juce::Timer
@@ -25,12 +28,21 @@ private:
     void toggleHostedWindow();
     void refreshHostedUi();
 
+    // synth quick-switch list
+    void refreshSynthBox();
+    void loadSynthEntry(const SynthLibrary::Entry&);
+    void promptSynthName(juce::File file, juce::String initialName,
+                         std::function<void(juce::String)> onAccept);
+
     enum class Tab { roll, settings };
     void showTab(Tab t);
 
     MpePianoRollAudioProcessor& processor;
     FlatLookAndFeel flatLnf;
+    juce::TooltipWindow tooltipWindow { this, 650 };
     Tab currentTab = Tab::roll;
+    bool autoOpenSynthWindow = true;
+    bool lastKnownLoaded = false;
 
     juce::TextButton rollTabButton { "Roll" };
     juce::TextButton settingsTabButton { "Settings" };
@@ -51,10 +63,25 @@ private:
     juce::Slider pbRangeSlider;
     juce::Label pbRangeHelp;
 
-    juce::TextButton loadHostedButton { "Load ..." };
+    juce::Label themeLabel { {}, "Theme" };
+    juce::ComboBox themeBox;
+    void applyTheme(Theme::Id id, bool store);
+
+    juce::Label scaleLabel { {}, "Scale" };
+    juce::ComboBox scaleRootBox, scaleTypeBox;
+    juce::ToggleButton snapToScaleButton { "Snap notes to scale" };
+
+    juce::Label updateLabel { {}, "Updates" };
+    juce::Label updateStatusLabel;
+    juce::TextButton checkUpdateButton { "Check now" };
+    juce::TextButton installUpdateButton { "Install update" };
+    UpdateChecker updateChecker;
+    void refreshUpdateUi();
+
+    SynthLibrary synthLibrary;
+    juce::ComboBox synthBox;
     juce::TextButton openHostedButton { "Open synth" };
     juce::TextButton forwardMidiButton { "Fwd host MIDI" };
-    juce::Label hostedStatusLabel;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::unique_ptr<HostedPluginWindow> hostedWindow;
