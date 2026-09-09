@@ -1,6 +1,7 @@
-MPE Bender  -  v0.3.0  (Windows 64-bit VST3)
+MPE Bender  (Windows 64-bit VST3)
 by prodcoldie
 ================================================
+(the version is in the zip's filename / the plugin's Settings tab)
 
 What it is
 ----------
