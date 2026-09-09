@@ -125,10 +125,9 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     };
     addAndMakeVisible(scaleTypeBox);
 
-    snapToScaleButton.setButtonText("Snap");
-    snapToScaleButton.setTooltip("Snap new and moved notes to the selected scale.");
+    snapToScaleButton.setClickingTogglesState(true);
+    snapToScaleButton.setTooltip("Restrict placing / moving notes to the selected scale (FL-style snap to scale).");
     snapToScaleButton.setToggleState(processor.getSnapToScale(), juce::dontSendNotification);
-    snapToScaleButton.setColour(juce::ToggleButton::textColourId, Theme::textDim);
     snapToScaleButton.onClick = [this] { processor.setSnapToScale(snapToScaleButton.getToggleState()); };
     addAndMakeVisible(snapToScaleButton);
 
@@ -155,10 +154,12 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     refreshUpdateUi();
     updateChecker.checkOnStartup();
 
-    setupSlider(channelsSlider, channelsLabel, 1.0, 14.0, processor.getNumMemberChannels(), 1.0);
+    setupSlider(channelsSlider, channelsLabel, 1.0,
+                (double) MpeEngine::getMaxMemberChannels(), processor.getNumMemberChannels(), 1.0);
     channelsLabel.setJustificationType(juce::Justification::centredLeft);
-    channelsSlider.setTooltip("How many MPE member channels to spread notes across "
-                              "(more = more simultaneous independent bends).");
+    channelsSlider.setTooltip("MPE member channels - how many notes can bend independently "
+                              "at once (15 is the MPE maximum). Beyond this, the oldest note's "
+                              "channel is reused.");
     channelsSlider.onValueChange = [this]
     {
         processor.setNumMemberChannels((int) channelsSlider.getValue());
@@ -477,10 +478,6 @@ void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
         g.fillRect(0, rollViewport.getY() - 3, getWidth(), 2);
     }
 
-    // "prodcoldie" credit, top-right of the tab bar
-    g.setColour(Theme::textDim);
-    g.setFont(11.0f);
-    g.drawText("prodcoldie", getWidth() - 98, 4, 92, 18, juce::Justification::centredRight);
 }
 
 void MpePianoRollAudioProcessorEditor::refreshUpdateUi()
@@ -509,7 +506,6 @@ void MpePianoRollAudioProcessorEditor::applyTheme(Theme::Id id, bool store)
         l->setColour(juce::Label::textColourId, Theme::textDim);
     for (juce::Label* l : { &statusLabel, &themeLabel, &scaleLabel, &updateLabel })
         l->setColour(juce::Label::textColourId, Theme::text);
-    snapToScaleButton.setColour(juce::ToggleButton::textColourId, Theme::textDim);
 
     for (juce::Slider* s : { &loopLengthSlider, &pbRangeSlider })
     {
@@ -582,8 +578,7 @@ void MpePianoRollAudioProcessorEditor::resized()
     rollTabButton.setBounds(tabBar.removeFromLeft(56));
     tabBar.removeFromLeft(3);
     settingsTabButton.setBounds(tabBar.removeFromLeft(66));
-    tabBar.removeFromRight(96);   // "prodcoldie" credit sits here
-    fullscreenButton.setBounds(tabBar.removeFromRight(78));
+    fullscreenButton.setBounds(tabBar.removeFromRight(92));
 
     // "1:1" zoom reset - detached, pinned to the editor's bottom-right corner, both tabs
     zoomResetButton.setBounds(getWidth() - 4 - 38, getHeight() - 4 - 20, 38, 20);

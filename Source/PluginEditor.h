@@ -73,7 +73,7 @@ private:
 
     juce::Label scaleLabel { {}, "Scale" };
     juce::ComboBox scaleRootBox, scaleTypeBox;
-    juce::ToggleButton snapToScaleButton { "Snap notes to scale" };
+    juce::TextButton snapToScaleButton { "Snap" };
 
     juce::Label updateLabel { {}, "Updates" };
     juce::Label updateStatusLabel;

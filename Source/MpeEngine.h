@@ -18,6 +18,7 @@ public:
     void setPitchBendRangeSemitones(int semitones);
 
     int getNumMemberChannels() const { return numMemberChannels; }
+    static constexpr int getMaxMemberChannels() { return maxMemberChannels; }
     int getPitchBendRangeSemitones() const { return pitchBendRangeSemitones; }
 
     // Call once when playback starts (or the config changes) to (re)send the MPE
@@ -62,10 +63,11 @@ private:
     static int pitchBendTo14Bit(float semitoneOffset, int rangeSemitones);
 
     static constexpr int masterChannel = 1;
-    int numMemberChannels = 14;                 // channels 2..15 by default
+    static constexpr int maxMemberChannels = 15;   // lower-zone MPE ceiling: channels 2..16
+    int numMemberChannels = maxMemberChannels;
     int pitchBendRangeSemitones = 48;           // common MPE default; matches many synths incl. Serum 2
 
-    std::array<ChannelState, 16> channels;      // index 0 unused (channel numbers are 1-based)
+    std::array<ChannelState, 17> channels;      // index 0 unused; 1 = master; 2..16 = members
     juce::uint32 allocationCounter = 0;
 
     std::atomic<juce::uint64> noteOnCount { 0 };

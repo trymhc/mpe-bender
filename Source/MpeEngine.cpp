@@ -13,7 +13,7 @@ MpeEngine::MpeEngine()
 
 void MpeEngine::setNumMemberChannels(int numChannels)
 {
-    numMemberChannels = juce::jlimit(1, 14, numChannels);
+    numMemberChannels = juce::jlimit(1, maxMemberChannels, numChannels);
 }
 
 void MpeEngine::setPitchBendRangeSemitones(int semitones)
