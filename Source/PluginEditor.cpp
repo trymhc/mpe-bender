@@ -11,15 +11,11 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     setSize(960, 640);
     setResizeLimits(720, 360, 2400, 1600);
 
+    // plain buttons - showTab() drives the on/off (toggled-on) look of both explicitly
     for (auto* b : { &rollTabButton, &settingsTabButton })
-    {
-        b->setClickingTogglesState(true);
-        b->setRadioGroupId(2001);
         addAndMakeVisible(*b);
-    }
-    rollTabButton.setToggleState(true, juce::dontSendNotification);
     rollTabButton.onClick     = [this] { showTab(Tab::roll); };
-    settingsTabButton.onClick  = [this] { showTab(Tab::settings); };
+    settingsTabButton.onClick = [this] { showTab(Tab::settings); };
 
     rollViewport.setViewedComponent(&pianoRoll, false);
     rollViewport.setScrollBarsShown(true, true);
@@ -545,7 +541,9 @@ void MpePianoRollAudioProcessorEditor::showTab(Tab t)
     zoomResetButton.setVisible(true);    // detached, shown on both tabs
     fullscreenButton.setVisible(true);
 
-    (roll ? rollTabButton : settingsTabButton).setToggleState(true, juce::dontSendNotification);
+    // drive BOTH buttons explicitly - don't rely on radio-group auto-untoggle
+    rollTabButton.setToggleState(roll, juce::dontSendNotification);
+    settingsTabButton.setToggleState(! roll, juce::dontSendNotification);
     resized();
 }
 
