@@ -14,11 +14,17 @@
 # DAW restart. New friends download the zip from the Releases page.
 
 param(
-    [string] $Repo    = "trymhc/mpe-bender",
-    [string] $Notes   = "",
+    [string] $Repo      = "trymhc/mpe-bender",
+    [string] $Notes     = "",
+    [string] $NotesFile  = "",          # a UTF-8 markdown file; overrides -Notes
     [switch] $SkipBuild,
     [switch] $DraftRelease
 )
+
+if ($NotesFile) {
+    if (-not (Test-Path $NotesFile)) { throw "NotesFile not found: $NotesFile" }
+    $Notes = [System.IO.File]::ReadAllText((Resolve-Path $NotesFile), [System.Text.UTF8Encoding]::new($false))
+}
 
 $ErrorActionPreference = 'Stop'
 $root  = $PSScriptRoot
