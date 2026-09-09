@@ -31,6 +31,7 @@ function Need($name) {
     $fallbacks = @{
         cmake = 'C:\Program Files\CMake\bin\cmake.exe'
         gh    = 'C:\Program Files\GitHub CLI\gh.exe'
+        git   = 'C:\Program Files\Git\cmd\git.exe'
     }
     if ($fallbacks.ContainsKey($name) -and (Test-Path $fallbacks[$name])) { return $fallbacks[$name] }
     throw "$name not found on PATH"
@@ -39,27 +40,38 @@ $cmake = Need cmake
 $gh    = Need gh
 $git   = Need git
 
+# run a native exe, return its stdout lines; throw with context on non-zero exit
+function Run($exe, [string[]] $arguments) {
+    $out = & $exe @arguments
+    if ($LASTEXITCODE -ne 0) { throw "$([IO.Path]::GetFileName($exe)) $($arguments -join ' ') -> exit $LASTEXITCODE`n$out" }
+    return $out
+}
+
 # --- version ---
 $cml = Get-Content (Join-Path $root 'CMakeLists.txt') -Raw
 if ($cml -notmatch 'project\(MpePianoRoll\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
     throw "Couldn't read version from CMakeLists.txt"
 }
-$version = $Matches[1]
-$tag     = "v$version"
+$version     = $Matches[1]
+$tag         = "v$version"
 $manifestUrl = "https://raw.githubusercontent.com/$Repo/main/latest.json"
-$zipName  = "MPE-Bender-$version.vst3.zip"
-$download = "https://github.com/$Repo/releases/download/$tag/$zipName"
+$zipName     = "MPE-Bender-$version.vst3.zip"
+$download    = "https://github.com/$Repo/releases/download/$tag/$zipName"
+$notesText   = if ($Notes) { $Notes } else { "MPE Bender $version" }
 Write-Host "Publishing $tag" -ForegroundColor Cyan
 
-& $gh release view $tag --repo $Repo 2>$null
-if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists - bump the version in CMakeLists.txt first." }
+# make sure gh is logged in and this tag isn't already released
+Run $gh @('auth','status') | Out-Null
+$existingTags = @(Run $gh @('release','list','--repo',$Repo,'--json','tagName','--jq','.[].tagName'))
+if ($existingTags -contains $tag) {
+    throw "Release $tag already exists. Bump project(MpePianoRoll VERSION ...) in CMakeLists.txt first."
+}
 
 # --- build ---
 if (-not $SkipBuild) {
     Write-Host "Configuring + building Release..." -ForegroundColor Yellow
-    & $cmake -S $root -B $build "-DMPE_BENDER_UPDATE_URL=$manifestUrl" | Out-Null
-    & $cmake --build $build --config Release --target MpePianoRoll_VST3 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+    Run $cmake @('-S',$root,'-B',$build,"-DMPE_BENDER_UPDATE_URL=$manifestUrl") | Out-Null
+    Run $cmake @('--build',$build,'--config','Release','--target','MpePianoRoll_VST3') | Out-Null
 }
 
 $vst3 = Join-Path $build 'MpePianoRoll_artefacts\Release\VST3\MPE Bender.vst3'
@@ -79,19 +91,21 @@ Remove-Item $stage -Recurse -Force
 Write-Host "  $zipPath" -ForegroundColor Green
 
 # --- GitHub release ---
-$notesText = if ($Notes) { $Notes } else { "MPE Bender $version" }
-$args = @('release','create',$tag,'--repo',$Repo,'--title',"MPE Bender $version",'--notes',$notesText,$zipPath)
-if ($DraftRelease) { $args += '--draft' }
-& $gh @args
-if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+$ghArgs = @('release','create',$tag,'--repo',$Repo,'--title',"MPE Bender $version",'--notes',$notesText,$zipPath)
+if ($DraftRelease) { $ghArgs += '--draft' }
+Run $gh $ghArgs
 
-# --- manifest ---
+# --- manifest: rewrite, commit, push ---
 $manifest = [ordered]@{ version = $version; download = $download; notes = $notesText }
 $manifestPath = Join-Path $root 'latest.json'
-($manifest | ConvertTo-Json) + "`n" | Set-Content -Path $manifestPath -Encoding utf8 -NoNewline
-& $git -C $root add latest.json
-& $git -C $root commit -m "Release $version" | Out-Null
-& $git -C $root push origin main
+Set-Content -Path $manifestPath -Value (($manifest | ConvertTo-Json)) -Encoding utf8
+
+Run $git @('-C',$root,'add','latest.json') | Out-Null
+$pending = & $git -C $root status --porcelain latest.json
+if ($pending) {
+    Run $git @('-C',$root,'commit','-m',"Release $version") | Out-Null
+}
+Run $git @('-C',$root,'push','origin','main') | Out-Null
 
 Write-Host ""
 Write-Host "Done. $tag is live:" -ForegroundColor Green
