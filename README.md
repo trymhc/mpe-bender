@@ -19,15 +19,23 @@ independent per note.
    └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Build
+**Just want to use it?** Grab the latest zip from
+[Releases](https://github.com/trymhc/mpe-bender/releases) and follow `INSTALL.txt`.
+That build self-updates.
+
+## Build from source
 
 Requires: Visual Studio 2022 Build Tools (Desktop C++), CMake ≥ 3.22. JUCE 9.0.2
 is a git submodule under `JUCE/`.
 
 ```bash
+git clone --recursive https://github.com/trymhc/mpe-bender
+cd mpe-bender
 cmake -S . -B build
 cmake --build build --config Release --target MpePianoRoll_VST3 MpePianoRoll_Standalone
 ```
+
+(If you cloned without `--recursive`: `git submodule update --init`.)
 
 Output: `build/MpePianoRoll_artefacts/Release/VST3/MPE Bender.vst3`
 
@@ -133,26 +141,30 @@ keyboard straight through to Serum, so you can still play it normally.
 - Hosting a VST inside a VST is allowed and works in FL Studio; a few other DAWs
   sandbox plugins in ways that can make the nested editor flaky.
 
-## Auto-update (for sharing with friends)
+## Auto-update
 
-MPE Bender can update itself. On startup (throttled to once/day) it fetches a small
-`latest.json`, and if a newer version is published it downloads the new `.vst3` and
-stages it; the **Settings → Updates** panel shows the status and an **Install update**
-button. Installing launches a tiny detached script that copies the new bundle into
-place **as soon as every DAW using the plugin is closed**, so the next launch is the
-new version. Nothing happens mid-session and nothing needs admin.
+Builds self-update against
+[`latest.json`](https://raw.githubusercontent.com/trymhc/mpe-bender/main/latest.json)
+in this repo. On startup (throttled to once/day) MPE Bender fetches it, and if a
+newer version is published it downloads the new `.vst3` and stages it; the
+**Settings → Updates** panel shows the status and an **Install update** button.
+Installing launches a tiny detached script that copies the new bundle into place
+**as soon as every DAW using the plugin is closed**, so the next launch is the new
+version. Nothing happens mid-session and nothing needs admin.
 
-To turn it on for your builds:
+The feed URL is baked in by default (`CMakeLists.txt`); build with
+`-DMPE_BENDER_UPDATE_URL=off` to disable it, or point it elsewhere.
 
-1. Bump `project(MpePianoRoll VERSION x.y.z)` in `CMakeLists.txt`.
-2. `powershell -ExecutionPolicy Bypass -File publish-update.ps1 -BaseUrl "<host>" -Notes "..."`
-   → produces `dist/MPE Bender-x.y.z.vst3.zip` + `dist/latest.json`.
-3. Upload both to `<host>` (a GitHub Release works well).
-4. Build the copies you hand out **once** with the manifest URL baked in:
-   `cmake -S . -B build -DMPE_BENDER_UPDATE_URL="https://.../latest.json"`
+### Cutting a release
 
-Without `-DMPE_BENDER_UPDATE_URL` the updater is inert and the panel says
-"Auto-update not configured".
+1. Bump `project(MpePianoRoll VERSION x.y.z)` in `CMakeLists.txt`, commit your changes.
+2. `powershell -ExecutionPolicy Bypass -File publish-update.ps1 -Notes "what changed"`
+
+That builds the VST3, zips `MPE Bender.vst3` + `INSTALL.txt` into
+`dist/MPE-Bender-x.y.z.vst3.zip`, creates GitHub release `vx.y.z` with it attached,
+and rewrites + pushes `latest.json`. Friends on a self-updating build pick it up on
+their next DAW restart; new friends download the zip from
+[Releases](https://github.com/trymhc/mpe-bender/releases).
 
 ## Source map
 

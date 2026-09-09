@@ -38,10 +38,13 @@ target_sources(MpePianoRoll
         Source/HostedPlugin.cpp
         Source/UpdateChecker.cpp)
 
-# Point the built-in auto-updater at your hosted manifest, e.g.:
-#   cmake -S . -B build -DMPE_BENDER_UPDATE_URL="https://raw.githubusercontent.com/you/mpe-bender/main/latest.json"
-# Leave unset to disable auto-update (the Settings tab shows "not configured").
-if(DEFINED MPE_BENDER_UPDATE_URL)
+# Built-in auto-updater feed. Default is this project's public repo; override with
+#   cmake -S . -B build -DMPE_BENDER_UPDATE_URL="https://.../latest.json"
+# or set it to "off" to disable (the Settings tab then shows "not configured").
+# Normal dev builds without -D are still inert (latest.json version == this build).
+set(MPE_BENDER_UPDATE_URL "https://raw.githubusercontent.com/trymhc/mpe-bender/main/latest.json"
+    CACHE STRING "URL of the auto-update manifest (latest.json)")
+if(MPE_BENDER_UPDATE_URL AND NOT MPE_BENDER_UPDATE_URL STREQUAL "off")
     target_compile_definitions(MpePianoRoll PRIVATE MPE_BENDER_UPDATE_MANIFEST_URL="${MPE_BENDER_UPDATE_URL}")
 endif()
 
