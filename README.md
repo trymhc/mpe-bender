@@ -109,23 +109,31 @@ Then in FL: **Options → Manage plugins → Find installed plugins**, search `b
      move the group; **drag a selected right edge** = resize the group;
      **Delete** / **Esc**.
 
-   **Zoom / navigate**: the **1:1** button (bottom-right), **Ctrl+scroll** =
-   zoom both axes around the cursor, **middle-mouse drag** = pan the roll.
+   **Zoom / navigate**: **wheel** = scroll vertically, **Shift+wheel** = scroll
+   horizontally, **Ctrl+wheel** = zoom horizontally, **Ctrl+Shift+wheel** = zoom
+   vertically, trackpad **pinch** = zoom both, **middle-drag** = pan, **1:1** button
+   (bottom-right) = reset zoom.
 
    **Editing shortcuts** (piano roll focused):
    - **Ctrl+Z** undo, **Ctrl+Shift+Z** / **Ctrl+Y** redo
    - **Ctrl+C** / **Ctrl+X** / **Ctrl+V** copy / cut / paste (paste lands at the mouse)
+   - **Ctrl+B** = duplicate the selection right after itself
    - **Shift**+drag a note = duplicate it (or the whole selection)
+   - **↑ / ↓** move the selection by a semitone (a scale degree with Snap on);
+     **Ctrl+↑ / ↓** by an octave
    - **M** = mute / unmute the selected notes (muted notes draw hollow and are skipped)
 
    **Scale viewer** (Roll toolbar, next to Loop): pick a **root** + **scale** and the
    in-scale rows show bright while out-of-scale rows go dark; the root note is marked
-   on the piano keys. **Snap** forces new / moved notes onto scale degrees.
-5. Press play in FL. The plugin loops its own pattern (**Loop (beats)** slider),
-   synced to the host tempo/position, and plays Serum with the per‑note bends.
+   on the piano keys. **Snap** restricts where you can place / move notes to the
+   scale's notes (like FL's snap-to-scale).
+5. Press play in FL. By default the loop only plays **while your DAW's channel is
+   sending MPE Bender a note** — put a note in the pattern to gate it (any pitch;
+   the note itself is silent). Toggle **Free run** on the toolbar to make the loop
+   play with the transport regardless.
 
-`Fwd host MIDI` (on by default) also passes MIDI from the FL piano roll / a
-keyboard straight through to Serum, so you can still play it normally.
+`Fwd host MIDI` (free-run only) also passes MIDI from the FL piano roll / a
+keyboard straight through to Serum, so you can play it live over the loop.
 
 ## Notes / limits
 

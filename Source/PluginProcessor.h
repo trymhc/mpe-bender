@@ -94,6 +94,13 @@ public:
     void setForwardHostMidi(bool shouldForward) { forwardHostMidi = shouldForward; }
     bool getForwardHostMidi() const { return forwardHostMidi; }
 
+    // Free run: when true the piano-roll loop always plays with the transport.
+    // When false (default) it only plays while the host is sending it note(s) -
+    // so a disabled / empty channel in the DAW stays silent.
+    void setFreeRun(bool shouldFreeRun) { freeRun = shouldFreeRun; }
+    bool getFreeRun() const { return freeRun; }
+    bool getUiGateOpen() const { return uiGateOpen.load(std::memory_order_relaxed); }
+
     // UI theme index (see Theme::Id). Stored with the project; the editor applies it.
     void setThemeId(int id) { themeId = id; }
     int getThemeId() const { return themeId; }
@@ -142,6 +149,10 @@ private:
     int configResends = 0;
     int configResendCountdown = 0;
     std::atomic<bool> forwardHostMidi { true };
+    std::atomic<bool> freeRun { false };
+    int heldHostNotes = 0;          // audio thread only
+    bool gateWasOpen = false;       // audio thread only
+    std::atomic<bool> uiGateOpen { false };
     int themeId = 0;   // Theme::Id::light
     bool pendingAutoLoad = true;   // message-thread only; see handleAsyncUpdate
 

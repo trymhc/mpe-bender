@@ -32,7 +32,7 @@ void PianoRollComponent::updateContentSize()
     setSize(juce::jmax(1, w), juce::jmax(1, h));
 }
 
-void PianoRollComponent::zoomBoth(float factor, float anchorX, float anchorY)
+void PianoRollComponent::zoomAxes(float fx, float fy, float anchorX, float anchorY)
 {
     auto* vp = findParentComponentOfClass<juce::Viewport>();
     const double beatAtX  = beatForX(anchorX);
@@ -40,14 +40,19 @@ void PianoRollComponent::zoomBoth(float factor, float anchorX, float anchorY)
     const float  sx = vp != nullptr ? anchorX - (float) vp->getViewPositionX() : anchorX;
     const float  sy = vp != nullptr ? anchorY - (float) vp->getViewPositionY() : anchorY;
 
-    pixelsPerBeat *= factor;
-    rowHeight     *= factor;
+    pixelsPerBeat *= fx;
+    rowHeight     *= fy;
     updateContentSize();
 
     if (vp != nullptr)
         vp->setViewPosition(juce::roundToInt(xForBeat(beatAtX) - sx),
                             juce::roundToInt(yForPitch(pitchAtY) - sy));
     repaint();
+}
+
+void PianoRollComponent::zoomBoth(float factor, float anchorX, float anchorY)
+{
+    zoomAxes(factor, factor, anchorX, anchorY);
 }
 
 void PianoRollComponent::resetZoom()
@@ -60,19 +65,42 @@ void PianoRollComponent::resetZoom()
 
 void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
-    if (e.mods.isCommandDown())   // Ctrl / trackpad pinch -> zoom both axes
+    auto* vp = findParentComponentOfClass<juce::Viewport>();
+
+    float d = std::abs(wheel.deltaY) >= std::abs(wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+    if (wheel.isReversed) d = -d;
+    if (std::abs(d) < 1.0e-4f)
+        return;
+    const float step = d > 0.0f ? 1.12f : (1.0f / 1.12f);
+
+    if (e.mods.isCommandDown())
     {
-        float dy = wheel.deltaY;
-        if (wheel.isReversed) dy = -dy;
-        if (std::abs(dy) < 1.0e-4f)
-            return;
-        const float step = dy > 0.0f ? 1.12f : (1.0f / 1.12f);
-        zoomBoth(step, e.position.x, e.position.y);
+        // Ctrl+wheel = zoom horizontally; Ctrl+Shift+wheel = zoom vertically
+        if (e.mods.isShiftDown()) zoomAxes(1.0f, step, e.position.x, e.position.y);
+        else                      zoomAxes(step, 1.0f, e.position.x, e.position.y);
         return;
     }
 
-    if (auto* vp = findParentComponentOfClass<juce::Viewport>())
-        vp->mouseWheelMove(e.getEventRelativeTo(vp), wheel);
+    if (vp == nullptr)
+        return;
+
+    // plain wheel = scroll vertically (always); Shift+wheel = scroll horizontally
+    if (e.mods.isShiftDown())
+    {
+        const int amount = juce::roundToInt(d * juce::jmax(60.0f, pixelsPerBeat));
+        vp->setViewPosition(vp->getViewPositionX() - amount, vp->getViewPositionY());
+    }
+    else
+    {
+        const int amount = juce::roundToInt(d * juce::jmax(48.0f, rowHeight * 4.0f));
+        vp->setViewPosition(vp->getViewPositionX(), vp->getViewPositionY() - amount);
+    }
+}
+
+void PianoRollComponent::mouseMagnify(const juce::MouseEvent& e, float scaleFactor)
+{
+    if (scaleFactor > 0.0f)
+        zoomAxes(scaleFactor, scaleFactor, e.position.x, e.position.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -363,6 +391,77 @@ void PianoRollComponent::copySelection()
     }
 }
 
+void PianoRollComponent::duplicateSelectionAfter()
+{
+    if (selection.empty())
+        return;
+
+    double lo = 1.0e18, hi = -1.0e18;
+    processor.readNotes([&](const std::vector<MpeNote>& notes)
+    {
+        for (auto& n : notes)
+            if (isSelected(n.id)) { lo = juce::jmin(lo, n.startBeat); hi = juce::jmax(hi, n.endBeat()); }
+    });
+    if (hi <= lo)
+        return;
+    const double shift = hi - lo;   // whole block continues right after itself
+
+    std::vector<juce::Uuid> copies;
+    editNotes([&](std::vector<MpeNote>& notes)
+    {
+        std::vector<MpeNote> add;
+        for (auto& n : notes)
+            if (isSelected(n.id))
+            {
+                MpeNote c = n;
+                c.id = juce::Uuid();
+                c.startBeat = n.startBeat + shift;
+                c.isSounding = false;
+                c.assignedChannel = -1;
+                copies.push_back(c.id);
+                add.push_back(std::move(c));
+            }
+        for (auto& c : add) notes.push_back(std::move(c));
+    });
+    selection = copies;
+    repaint();
+}
+
+void PianoRollComponent::nudgeSelectionPitch(int semitones)
+{
+    if (selection.empty() || semitones == 0)
+        return;
+
+    // With scale-snap on, a single step moves to the next scale degree (FL-style);
+    // whole octaves always move by 12 (which keeps the scale degree).
+    const bool byDegree = processor.getSnapToScale()
+                       && processor.getScaleType() != Scale::chromatic
+                       && std::abs(semitones) < 12;
+    const int  dir = semitones > 0 ? 1 : -1;
+    const int  st  = processor.getScaleType();
+    const int  rt  = processor.getScaleRoot();
+
+    editNotes([&](std::vector<MpeNote>& notes)
+    {
+        for (auto& n : notes)
+            if (isSelected(n.id))
+            {
+                int p = n.pitch;
+                if (byDegree)
+                {
+                    for (int i = 1; i <= 12; ++i)
+                        if (Scale::contains(st, rt, p + dir * i)) { p += dir * i; break; }
+                }
+                else
+                {
+                    p += semitones;
+                }
+                n.pitch = juce::jlimit(lowestPitch, highestPitch, p);
+            }
+    });
+    repaint();
+}
+
 void PianoRollComponent::pasteClipboard()
 {
     if (clipboard.empty())
@@ -382,7 +481,7 @@ void PianoRollComponent::pasteClipboard()
         {
             src.id = juce::Uuid();
             src.startBeat = anchorBeat + src.startBeat;
-            src.pitch = juce::jlimit(lowestPitch, highestPitch, src.pitch + dPitch);
+            src.pitch = maybeSnapPitch(juce::jlimit(lowestPitch, highestPitch, src.pitch + dPitch));
             src.isSounding = false;
             src.assignedChannel = -1;
             pasted.push_back(src.id);
@@ -1250,6 +1349,20 @@ bool PianoRollComponent::keyPressed(const juce::KeyPress& key)
     if (cmd && kc == 'V')
     {
         beginGesture(); pasteClipboard(); endGesture();
+        return true;
+    }
+    if (cmd && kc == 'B')
+    {
+        beginGesture(); duplicateSelectionAfter(); endGesture();
+        return true;
+    }
+
+    // arrows: move the selection in pitch (Ctrl = a whole octave)
+    if (key.isKeyCode(juce::KeyPress::upKey) || key.isKeyCode(juce::KeyPress::downKey))
+    {
+        const int dir  = key.isKeyCode(juce::KeyPress::upKey) ? 1 : -1;
+        const int step = cmd ? 12 : 1;
+        beginGesture(); nudgeSelectionPitch(dir * step); endGesture();
         return true;
     }
 

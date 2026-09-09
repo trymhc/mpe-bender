@@ -36,6 +36,7 @@ public:
     void mouseMove(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void mouseMagnify(const juce::MouseEvent&, float scaleFactor) override;
     bool keyPressed(const juce::KeyPress&) override;
 
     static constexpr int keyboardWidth = 50;
@@ -50,6 +51,7 @@ public:
     int  scaleRoot() const { return processor.getScaleRoot(); }
     bool scaleActive() const { return processor.getScaleType() != Scale::chromatic; }
 
+    void zoomAxes(float fx, float fy, float anchorX, float anchorY);
     void zoomBoth(float factor, float anchorX, float anchorY);
     void resetZoom();
     void updateContentSize();
@@ -118,6 +120,8 @@ private:
     void toggleMuteSelected();
     void copySelection();
     void pasteClipboard();
+    void duplicateSelectionAfter();      // Ctrl+B: copies start where the selection ends
+    void nudgeSelectionPitch(int semitones);
 
     // Every note mutation goes through this so one gesture = one undo step.
     template <typename Fn>

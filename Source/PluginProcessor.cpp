@@ -27,6 +27,10 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     b.lengthBeats = b.bend.conformEnd(2.0);
     notes.push_back(b);
 
+    // The standalone has no host feeding it notes, so default it to free-run;
+    // inside a DAW default to gated (silent until the channel sends a note).
+    freeRun.store(wrapperType == wrapperType_Standalone, std::memory_order_relaxed);
+
     // Try to bring up a synth on its own (the last one you used, else Serum 2), so a
     // fresh instance is ready to play without clicking "Load ...". Deferred to the
     // message thread (can't create a VST3 instance here); skipped if the host
@@ -275,14 +279,31 @@ void MpePianoRollAudioProcessor::processBlock(juce::AudioBuffer<float>& audioBuf
 
     const int numSamples = audioBuffer.getNumSamples();
 
-    // MIDI stream we hand to the hosted synth: optionally the host's own MIDI, plus
-    // the MPE stream our engine generates from the piano roll.
     juce::MidiBuffer forSynth;
-    if (forwardHostMidi.load(std::memory_order_relaxed))
-        forSynth.addEvents(midiBuffer, 0, numSamples, 0);
 
     if (pendingHardReset.exchange(false, std::memory_order_relaxed))
         hardResetPlayback(forSynth);   // undo/redo swapped the note list out from under the engine
+
+    // ---- gate: unless in free-run, the loop only plays while the host feeds us notes ----
+    for (const auto meta : midiBuffer)
+    {
+        const auto msg = meta.getMessage();
+        if      (msg.isNoteOn())                              ++heldHostNotes;
+        else if (msg.isNoteOff())                             heldHostNotes = juce::jmax(0, heldHostNotes - 1);
+        else if (msg.isAllNotesOff() || msg.isAllSoundOff())  heldHostNotes = 0;
+    }
+    const bool free     = freeRun.load(std::memory_order_relaxed);
+    const bool gateOpen = free || heldHostNotes > 0;
+
+    // In free-run the host's own MIDI can be layered onto the synth; in gate mode the
+    // incoming notes are pure triggers and never sound directly.
+    if (free && forwardHostMidi.load(std::memory_order_relaxed))
+        forSynth.addEvents(midiBuffer, 0, numSamples, 0);
+
+    uiGateOpen.store(gateOpen, std::memory_order_relaxed);
+    if (gateWasOpen && ! gateOpen)
+        hardResetPlayback(forSynth);   // gate just closed - release anything still sounding
+    gateWasOpen = gateOpen;
 
     // ---- generate MPE MIDI from the piano roll, driven by the host transport ----
     auto* transport = getPlayHead();
@@ -349,7 +370,7 @@ void MpePianoRollAudioProcessor::processBlock(juce::AudioBuffer<float>& audioBuf
                     uiBpm.store(bpm, std::memory_order_relaxed);
 
                     const double samplesPerBeat = (60.0 / bpm) * currentSampleRate;
-                    if (samplesPerBeat > 0.0)
+                    if (samplesPerBeat > 0.0 && gateOpen)
                     {
                         const double blockStartBeat = ppq;
                         const double blockEndBeat = blockStartBeat + (double) numSamples / samplesPerBeat;
@@ -407,6 +428,7 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
     state.setProperty("pitchBendRange", engine.getPitchBendRangeSemitones(), nullptr);
     state.setProperty("numMemberChannels", engine.getNumMemberChannels(), nullptr);
     state.setProperty("forwardHostMidi", forwardHostMidi.load(std::memory_order_relaxed), nullptr);
+    state.setProperty("freeRun", freeRun.load(std::memory_order_relaxed), nullptr);
     state.setProperty("themeId", themeId, nullptr);
     state.setProperty("scaleRoot", scaleRoot, nullptr);
     state.setProperty("scaleType", scaleType, nullptr);
@@ -475,6 +497,7 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
     engine.setPitchBendRangeSemitones((int) state.getProperty("pitchBendRange", 48));
     engine.setNumMemberChannels((int) state.getProperty("numMemberChannels", 14));
     forwardHostMidi.store((bool) state.getProperty("forwardHostMidi", true), std::memory_order_relaxed);
+    freeRun.store((bool) state.getProperty("freeRun", false), std::memory_order_relaxed);
     themeId = (int) state.getProperty("themeId", 0);
     scaleRoot = ((((int) state.getProperty("scaleRoot", 0)) % 12) + 12) % 12;
     scaleType = (int) state.getProperty("scaleType", 0);

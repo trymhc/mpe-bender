@@ -211,6 +211,15 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     openHostedButton.onClick = [this] { toggleHostedWindow(); };
     openHostedButton.setTooltip("Show or hide the hosted synth's own editor window.");
 
+    addAndMakeVisible(freeRunButton);
+    freeRunButton.setClickingTogglesState(true);
+    freeRunButton.setToggleState(processor.getFreeRun(), juce::dontSendNotification);
+    freeRunButton.onClick = [this] { processor.setFreeRun(freeRunButton.getToggleState()); };
+    freeRunButton.setTooltip("OFF (default): the piano-roll loop only plays while the host sends "
+                             "MPE Bender a note - so a disabled / empty channel stays silent, and "
+                             "you gate the loop with a note in your DAW's pattern.\n"
+                             "ON: the loop always plays with the transport.");
+
     addAndMakeVisible(forwardMidiButton);
     forwardMidiButton.setClickingTogglesState(true);
     forwardMidiButton.setToggleState(processor.getForwardHostMidi(), juce::dontSendNotification);
@@ -218,13 +227,18 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     {
         processor.setForwardHostMidi(forwardMidiButton.getToggleState());
     };
-    forwardMidiButton.setTooltip("Also pass MIDI coming from the host straight into the "
-                                 "synth, so you can still play it from a keyboard or clip.");
+    forwardMidiButton.setTooltip("Free-run only: also pass MIDI from the host straight into the "
+                                 "synth so you can play it live over the loop. In gate mode the "
+                                 "incoming notes are silent triggers.");
 
     statusLabel.setJustificationType(juce::Justification::centredLeft);
     statusLabel.setFont(13.0f);
     statusLabel.setColour(juce::Label::textColourId, Theme::text);
     addAndMakeVisible(statusLabel);
+
+    addAndMakeVisible(fullscreenButton);
+    fullscreenButton.onClick = [this] { toggleFullscreen(); };
+    fullscreenButton.setTooltip("Grow the editor to fill the screen (toggle).");
 
     addAndMakeVisible(zoomResetButton);   // added last -> stays on top of the viewport
 
@@ -396,7 +410,9 @@ void MpePianoRollAudioProcessorEditor::refreshHostedUi()
     openHostedButton.setEnabled(loaded);
     openHostedButton.setButtonText(hostedWindow != nullptr ? "Close synth" : "Open synth");
 
+    freeRunButton.setToggleState(processor.getFreeRun(), juce::dontSendNotification);
     forwardMidiButton.setToggleState(processor.getForwardHostMidi(), juce::dontSendNotification);
+    forwardMidiButton.setEnabled(processor.getFreeRun());
 
     if (loaded != lastKnownLoaded)   // synth appeared / disappeared -> reflect it in the list
     {
@@ -435,9 +451,13 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
             break;
     }
 
-    statusLabel.setText("MIDI notes out: " + juce::String(processor.getUiNoteOnCount())
-                             + " on / " + juce::String(processor.getUiNoteOffCount()) + " off"
-                             + "   |   transport: " + statusText,
+    const juce::String gate = processor.getFreeRun() ? "free run"
+                            : processor.getUiGateOpen() ? "playing (note held)"
+                                                        : "waiting for a note from the DAW";
+    statusLabel.setText("notes out: " + juce::String(processor.getUiNoteOnCount())
+                             + " / " + juce::String(processor.getUiNoteOffCount())
+                             + "   |   " + gate
+                             + "   |   " + statusText,
                          juce::dontSendNotification);
 
     refreshHostedUi();
@@ -512,7 +532,7 @@ void MpePianoRollAudioProcessorEditor::showTab(Tab t)
     juce::Component* rollBits[] = { &rollViewport, &keyboardSidebar,
                                    &loopLabel, &loopLengthSlider,
                                    &scaleLabel, &scaleRootBox, &scaleTypeBox, &snapToScaleButton,
-                                   &synthBox, &openHostedButton, &forwardMidiButton,
+                                   &synthBox, &openHostedButton, &freeRunButton, &forwardMidiButton,
                                    &statusLabel };
     for (auto* c : rollBits)
         c->setVisible(roll);
@@ -526,10 +546,32 @@ void MpePianoRollAudioProcessorEditor::showTab(Tab t)
     if (! roll)
         refreshUpdateUi();   // may hide installUpdateButton again
 
-    zoomResetButton.setVisible(true);   // detached, shown on both tabs
+    zoomResetButton.setVisible(true);    // detached, shown on both tabs
+    fullscreenButton.setVisible(true);
 
     (roll ? rollTabButton : settingsTabButton).setToggleState(true, juce::dontSendNotification);
     resized();
+}
+
+void MpePianoRollAudioProcessorEditor::toggleFullscreen()
+{
+    if (! isFullscreen)
+    {
+        windowedW = getWidth();
+        windowedH = getHeight();
+        auto area = juce::Desktop::getInstance().getDisplays().getTotalBounds(true);
+        if (auto* d = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds()))
+            area = d->userArea;
+        setSize(juce::jlimit(720, 2400, area.getWidth()  - 8),
+                juce::jlimit(360, 1600, area.getHeight() - 8));
+        isFullscreen = true;
+    }
+    else
+    {
+        setSize(windowedW, windowedH);
+        isFullscreen = false;
+    }
+    fullscreenButton.setButtonText(isFullscreen ? "Exit full" : "Fullscreen");
 }
 
 void MpePianoRollAudioProcessorEditor::resized()
@@ -540,6 +582,8 @@ void MpePianoRollAudioProcessorEditor::resized()
     rollTabButton.setBounds(tabBar.removeFromLeft(56));
     tabBar.removeFromLeft(3);
     settingsTabButton.setBounds(tabBar.removeFromLeft(66));
+    tabBar.removeFromRight(96);   // "prodcoldie" credit sits here
+    fullscreenButton.setBounds(tabBar.removeFromRight(78));
 
     // "1:1" zoom reset - detached, pinned to the editor's bottom-right corner, both tabs
     zoomResetButton.setBounds(getWidth() - 4 - 38, getHeight() - 4 - 20, 38, 20);
@@ -588,11 +632,13 @@ void MpePianoRollAudioProcessorEditor::resized()
     snapToScaleButton.setBounds(toolbar.removeFromLeft(72));
 
     auto synthBar = area.removeFromTop(28).reduced(6, 2);
-    synthBox.setBounds(synthBar.removeFromLeft(200).withSizeKeepingCentre(200, 24));
+    synthBox.setBounds(synthBar.removeFromLeft(196).withSizeKeepingCentre(196, 24));
     synthBar.removeFromLeft(8);
-    openHostedButton.setBounds(synthBar.removeFromLeft(100));
+    openHostedButton.setBounds(synthBar.removeFromLeft(96));
     synthBar.removeFromLeft(6);
-    forwardMidiButton.setBounds(synthBar.removeFromLeft(110));
+    freeRunButton.setBounds(synthBar.removeFromLeft(84));
+    synthBar.removeFromLeft(6);
+    forwardMidiButton.setBounds(synthBar.removeFromLeft(104));
 
     statusLabel.setBounds(area.removeFromTop(18).reduced(6, 1));
     area.removeFromTop(4);   // room for the separator line

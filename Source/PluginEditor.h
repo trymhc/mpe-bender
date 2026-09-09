@@ -36,6 +36,7 @@ private:
 
     enum class Tab { roll, settings };
     void showTab(Tab t);
+    void toggleFullscreen();
 
     MpePianoRollAudioProcessor& processor;
     FlatLookAndFeel flatLnf;
@@ -52,6 +53,9 @@ private:
     KeyboardSidebar keyboardSidebar { pianoRoll, rollViewport };
 
     juce::TextButton zoomResetButton { "1:1" };
+    juce::TextButton fullscreenButton { "Fullscreen" };
+    bool isFullscreen = false;
+    int  windowedW = 960, windowedH = 640;
 
     juce::Label loopLabel { {}, "Loop (bars)" };
     juce::Slider loopLengthSlider;
@@ -81,6 +85,7 @@ private:
     SynthLibrary synthLibrary;
     juce::ComboBox synthBox;
     juce::TextButton openHostedButton { "Open synth" };
+    juce::TextButton freeRunButton { "Free run" };
     juce::TextButton forwardMidiButton { "Fwd host MIDI" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
