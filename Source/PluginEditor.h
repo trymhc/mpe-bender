@@ -8,6 +8,7 @@
 #include "UiTheme.h"
 #include "UpdateChecker.h"
 #include "SynthLibrary.h"
+#include "MidiIo.h"
 #include <memory>
 #include <functional>
 
@@ -33,6 +34,8 @@ private:
     void loadSynthEntry(const SynthLibrary::Entry&);
     void promptSynthName(juce::File file, juce::String initialName,
                          std::function<void(juce::String)> onAccept);
+
+    void importMidi();
 
     enum class Tab { roll, settings };
     void showTab(Tab t);
@@ -74,6 +77,7 @@ private:
     juce::Label scaleLabel { {}, "Scale" };
     juce::ComboBox scaleRootBox, scaleTypeBox;
     juce::TextButton snapToScaleButton { "Snap" };
+    juce::TextButton importMidiButton { "Import MIDI" };
 
     juce::Label updateLabel { {}, "Updates" };
     juce::Label updateStatusLabel;

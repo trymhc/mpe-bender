@@ -5,28 +5,6 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     : AudioProcessor(BusesProperties()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
-    // A couple of demo notes so the roll isn't empty on first load: a rising note
-    // with a growing-amplitude sine wobble, and a flat straight note.
-    MpeNote a;
-    a.startBeat = 0.0;
-    a.lengthBeats = 4.0;
-    a.pitch = 55;
-    a.bend.addPoint(4.0, 7.0f);          // rises a fifth over 4 beats (the chord)
-    a.lengthBeats = a.bend.conformEnd(4.0);
-    a.shape = BendShape::sine;
-    a.shapeCycles = 4.0f;
-    a.shapeSkew = 1.6f;
-    a.shapeAmpStart = 0.3f;
-    a.shapeAmpEnd = 2.5f;
-    notes.push_back(a);
-
-    MpeNote b;
-    b.startBeat = 4.0;
-    b.lengthBeats = 2.0;
-    b.pitch = 64;
-    b.lengthBeats = b.bend.conformEnd(2.0);
-    notes.push_back(b);
-
     // The standalone has no host feeding it notes, so default it to free-run;
     // inside a DAW default to gated (silent until the channel sends a note).
     freeRun.store(wrapperType == wrapperType_Standalone, std::memory_order_relaxed);
@@ -462,6 +440,11 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
             nt.setProperty("shapeSkew", n.shapeSkew, nullptr);
             nt.setProperty("shapeAmpStart", n.shapeAmpStart, nullptr);
             nt.setProperty("shapeAmpEnd", n.shapeAmpEnd, nullptr);
+            if (n.hasShapeRange())
+            {
+                nt.setProperty("shapeFromBeat", n.shapeFromBeat, nullptr);
+                nt.setProperty("shapeToBeat", n.shapeToBeat, nullptr);
+            }
 
             juce::ValueTree ct("Bend");
             for (auto& p : n.bend.getPoints())
@@ -528,6 +511,8 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
         n.shapeSkew     = (float) (double) nt.getProperty("shapeSkew", 1.0);
         n.shapeAmpStart = (float) (double) nt.getProperty("shapeAmpStart", 0.0);
         n.shapeAmpEnd   = (float) (double) nt.getProperty("shapeAmpEnd", 2.0);
+        n.shapeFromBeat = (double) nt.getProperty("shapeFromBeat", -1.0);
+        n.shapeToBeat   = (double) nt.getProperty("shapeToBeat", -1.0);
 
         auto deserialiseCurve = [&](ExpressionCurve& curve, const char* tagName)
         {

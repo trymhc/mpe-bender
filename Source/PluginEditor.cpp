@@ -130,6 +130,12 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     scaleRootBox.setTooltip("Scale root note.");
     scaleTypeBox.setTooltip("Highlight this scale in the piano roll (Chromatic = off).");
 
+    // --- MIDI file import ---
+    addAndMakeVisible(importMidiButton);
+    importMidiButton.onClick = [this] { importMidi(); };
+    importMidiButton.setTooltip("Bring notes in from a .mid file. Notes come in flat - "
+                                "pitch bend isn't read from the file.");
+
     // --- auto-updater ---
     updateLabel.setJustificationType(juce::Justification::centredLeft);
     updateLabel.setColour(juce::Label::textColourId, Theme::text);
@@ -374,6 +380,68 @@ void MpePianoRollAudioProcessorEditor::promptSynthName(juce::File file, juce::St
         }), true);
 }
 
+void MpePianoRollAudioProcessorEditor::importMidi()
+{
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Import a MIDI file into the piano roll", juce::File(), "*.mid;*.midi");
+
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this](const juce::FileChooser& fc)
+        {
+            auto result = fc.getResult();
+            if (result == juce::File())
+                return;
+
+            auto imported = std::make_shared<std::vector<MpeNote>>();
+            auto error = MidiIo::importFile(result, *imported);
+            if (error.isNotEmpty())
+            {
+                juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Couldn't import that file", error);
+                return;
+            }
+
+            auto apply = [this, imported](bool replace)
+            {
+                auto before = processor.snapshotNotes();
+                processor.modifyNotes([&](std::vector<MpeNote>& notes)
+                {
+                    if (replace)
+                        notes = *imported;
+                    else
+                        notes.insert(notes.end(), imported->begin(), imported->end());
+                });
+                processor.commitUndo(std::move(before));
+                pianoRoll.updateContentSize();
+                pianoRoll.repaint();
+            };
+
+            if (processor.snapshotNotes().empty())
+            {
+                apply(true);
+                return;
+            }
+
+            auto* aw = new juce::AlertWindow("Import MIDI",
+                juce::String((int) imported->size()) + " note(s) found. Notes come in flat - "
+                "pitch bend isn't read from the file.\n\nReplace what's currently in the piano "
+                "roll, or add the imported notes alongside it? (Ctrl+Z undoes either.)",
+                juce::MessageBoxIconType::QuestionIcon);
+            aw->addButton("Replace", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            aw->addButton("Add", 2);
+            aw->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+            juce::Component::SafePointer<juce::AlertWindow> safe(aw);
+            aw->enterModalState(true, juce::ModalCallbackFunction::create(
+                [safe, apply](int result)
+                {
+                    juce::ignoreUnused(safe);
+                    if (result == 1)      apply(true);
+                    else if (result == 2) apply(false);
+                }), true);
+        });
+}
+
 void MpePianoRollAudioProcessorEditor::toggleHostedWindow()
 {
     if (hostedWindow != nullptr)
@@ -525,6 +593,7 @@ void MpePianoRollAudioProcessorEditor::showTab(Tab t)
                                    &loopLabel, &loopLengthSlider,
                                    &scaleLabel, &scaleRootBox, &scaleTypeBox, &snapToScaleButton,
                                    &synthBox, &openHostedButton, &freeRunButton, &forwardMidiButton,
+                                   &importMidiButton,
                                    &statusLabel };
     for (auto* c : rollBits)
         c->setVisible(roll);
@@ -632,6 +701,8 @@ void MpePianoRollAudioProcessorEditor::resized()
     freeRunButton.setBounds(synthBar.removeFromLeft(84));
     synthBar.removeFromLeft(6);
     forwardMidiButton.setBounds(synthBar.removeFromLeft(104));
+    synthBar.removeFromLeft(14);
+    importMidiButton.setBounds(synthBar.removeFromLeft(100));
 
     statusLabel.setBounds(area.removeFromTop(18).reduced(6, 1));
     area.removeFromTop(4);   // room for the separator line

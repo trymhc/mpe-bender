@@ -204,7 +204,11 @@ void MpeEngine::renderBlock(std::vector<MpeNote>& notes,
             updateExpression(note, buffer, blockStartBeat);
         }
 
-        if (note.isSounding && note.endBeat() >= blockStartBeat && note.endBeat() < blockEndBeat)
+        // <= (not <): a note ending exactly on a block boundary - which is exactly
+        // where the loop-wrap split in PluginProcessor always cuts segment one, at
+        // beat == loopLen - must still get closed here, or it never does: the wrapped
+        // segment starts fresh at beat 0 and never revisits beat loopLen again.
+        if (note.isSounding && note.endBeat() >= blockStartBeat && note.endBeat() <= blockEndBeat)
             triggerNoteOff(note, buffer, blockStartBeat, samplesPerBeat);
     }
 }

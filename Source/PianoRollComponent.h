@@ -14,7 +14,11 @@
 //   bend point = shape the chord; right-click = delete.
 //   When one note is selected, the shape controls appear around it (a straight /
 //   sine / triangle wheel, plus cycles / squeeze / start- and end-amplitude
-//   sliders when the shape is a wave).
+//   sliders when the shape is a wave). By default the wave rides the whole note;
+//   Shift-click one bend point then Shift-click another on the same note to pick
+//   just the section between them instead (Shift-click either one again to cancel).
+//   1 / 2 / 3 set every selected note's shape (straight / triangle / sine) at once,
+//   whole-note, for a multi-selection.
 //   Hold Shift while dragging = temporarily the Select tool. Hold Alt = fine.
 // Select tool: box-drag = marquee select (Shift adds); drag a selected note = move
 //   the whole selection; drag a right edge = resize all selected; Delete removes.
@@ -164,7 +168,14 @@ private:
     };
     ShapeUI shapeUIFor(const MpeNote& note) const;
     void setNoteShape(const juce::Uuid& id, BendShape s);
+    void setShapeForSelection(BendShape s);   // bulk-apply to every selected note (whole note)
     int wheelSliceAt(const ShapeUI& s, juce::Point<float> pos) const;   // -1, 0=STR, 1=TRI, 2=SIN
+
+    // Shift-click a bend point to anchor a wave section, Shift-click a second point
+    // on the same note to apply it (the two points bound where the wave rides).
+    void pickShapeRangePoint(const juce::Uuid& noteId, int pointIndex);
+    juce::Uuid rangeAnchorNoteId;
+    int rangeAnchorIndex = -1;
 
     MpePianoRollAudioProcessor& processor;
     Tool tool = Tool::draw;

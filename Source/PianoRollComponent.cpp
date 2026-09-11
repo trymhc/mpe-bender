@@ -163,7 +163,7 @@ bool PianoRollComponent::ribbonHit(const MpeNote& note, juce::Point<float> pos) 
     if (b < note.startBeat - 0.02 || b > note.endBeat() + 0.02)
         return false;
     const float ry = yForPitch((float) note.pitch + note.bendOffsetAt(b - note.startBeat));
-    return std::abs(pos.y - ry) <= rowHeight * 0.7f;
+    return std::abs(pos.y - ry) <= rowHeight * 0.5f;
 }
 
 bool PianoRollComponent::nearRightEdge(const MpeNote& note, juce::Point<float> pos) const
@@ -203,6 +203,24 @@ namespace
     {
         return std::pow(4.0f, (juce::jlimit(0.0f, 1.0f, n) - 0.5f) * 2.0f);
     }
+
+    // Shared by the single-note wheel click and the multi-select bulk shortcuts.
+    void applyShape(MpeNote& n, BendShape shp)
+    {
+        if (n.shape == BendShape::straight && shp != BendShape::straight)
+        {
+            // Turning a straight note (or section) into a wave: start with no
+            // amplitude at the beginning growing to 0.25 at the end.
+            n.shapeAmpStart = 0.0f;
+            n.shapeAmpEnd   = 0.25f;
+        }
+        if (shp == BendShape::straight)
+        {
+            n.shapeFromBeat = -1.0;   // back to "no section picked"
+            n.shapeToBeat   = -1.0;
+        }
+        n.shape = shp;
+    }
 }
 
 PianoRollComponent::ShapeUI PianoRollComponent::shapeUIFor(const MpeNote& note) const
@@ -214,10 +232,12 @@ PianoRollComponent::ShapeUI PianoRollComponent::shapeUIFor(const MpeNote& note) 
 
     s.valid = true;
     s.noteId = note.id;
-    s.x0 = xForBeat(note.startBeat + pts.front().beat);
-    s.y0 = yForPitch((float) note.pitch + pts.front().value);
-    s.x1 = xForBeat(note.endBeat());
-    s.y1 = yForPitch((float) note.pitch + pts.back().value);
+    const double fromBeat = note.shapeSpanFirstBeat();
+    const double toBeat   = note.shapeSpanLastBeat();
+    s.x0 = xForBeat(note.startBeat + fromBeat);
+    s.y0 = yForPitch((float) note.pitch + note.bend.sample(fromBeat));
+    s.x1 = xForBeat(note.startBeat + toBeat);
+    s.y1 = yForPitch((float) note.pitch + note.bend.sample(toBeat));
     s.wave = note.shape != BendShape::straight;
 
     const float midX = 0.5f * (s.x0 + s.x1);
@@ -225,8 +245,16 @@ PianoRollComponent::ShapeUI PianoRollComponent::shapeUIFor(const MpeNote& note) 
     // Place the controls off the wave's *envelope* - chord extent +/- the larger
     // amplitude - not the live sampled curve, so dragging cycles/skew (which only
     // change the wave inside a fixed envelope) doesn't make the sliders jump.
+    // Only bend points inside the wave's own section count toward that extent.
     float chordLo = 1.0e9f, chordHi = -1.0e9f;
-    for (auto& p : pts) { chordLo = juce::jmin(chordLo, p.value); chordHi = juce::jmax(chordHi, p.value); }
+    for (auto& p : pts)
+        if (p.beat >= fromBeat - 1.0e-6 && p.beat <= toBeat + 1.0e-6)
+            { chordLo = juce::jmin(chordLo, p.value); chordHi = juce::jmax(chordHi, p.value); }
+    if (chordLo > chordHi)
+    {
+        chordLo = juce::jmin(note.bend.sample(fromBeat), note.bend.sample(toBeat));
+        chordHi = juce::jmax(note.bend.sample(fromBeat), note.bend.sample(toBeat));
+    }
     const float maxAmp = juce::jmax(std::abs(note.shapeAmpStart), std::abs(note.shapeAmpEnd)) + 0.5f;
     const float drawnBot = s.wave ? yForPitch((float) note.pitch + chordLo - maxAmp) : juce::jmax(s.y0, s.y1);
     const float drawnTop = s.wave ? yForPitch((float) note.pitch + chordHi + maxAmp) : juce::jmin(s.y0, s.y1);
@@ -239,7 +267,7 @@ PianoRollComponent::ShapeUI PianoRollComponent::shapeUIFor(const MpeNote& note) 
         s.cyclesTrack  = { s.x0, drawnBot + 8.0f,  s.x1 - s.x0, 6.0f };
         s.squeezeTrack = { s.x0, drawnTop - 16.0f, s.x1 - s.x0, 6.0f };
 
-        const double spanB = note.bend.lastBeat() - note.bend.firstBeat();
+        const double spanB = toBeat - fromBeat;
         const float cycMax = cycMaxFor(spanB);
         const float cyN = juce::jlimit(0.0f, 1.0f, (note.shapeCycleCount() - 1.0f) / juce::jmax(1.0f, cycMax - 1.0f));
         s.cyclesH  = { s.x0 + cyN * (s.x1 - s.x0), s.cyclesTrack.getCentreY() };
@@ -273,18 +301,62 @@ void PianoRollComponent::setNoteShape(const juce::Uuid& id, BendShape shp)
     editNotes([&](std::vector<MpeNote>& notes)
     {
         for (auto& n : notes)
-            if (n.id == id)
-            {
-                // Turning a straight note into a wave: start with no amplitude at the
-                // beginning growing to 0.50 at the end, before the knobs are touched.
-                if (n.shape == BendShape::straight && shp != BendShape::straight)
-                {
-                    n.shapeAmpStart = 0.0f;
-                    n.shapeAmpEnd   = 0.5f;
-                }
-                n.shape = shp;
+            if (n.id == id) { applyShape(n, shp); break; }
+    });
+    repaint();
+}
+
+void PianoRollComponent::setShapeForSelection(BendShape shp)
+{
+    if (selection.empty())
+        return;
+    editNotes([&](std::vector<MpeNote>& notes)
+    {
+        for (auto& n : notes)
+            if (isSelected(n.id)) applyShape(n, shp);
+    });
+    repaint();
+}
+
+void PianoRollComponent::pickShapeRangePoint(const juce::Uuid& noteId, int pointIndex)
+{
+    if (rangeAnchorIndex < 0 || rangeAnchorNoteId != noteId)
+    {
+        rangeAnchorNoteId = noteId;
+        rangeAnchorIndex = pointIndex;
+        return;
+    }
+
+    if (rangeAnchorIndex == pointIndex)   // clicked the same point again - cancel
+    {
+        rangeAnchorIndex = -1;
+        return;
+    }
+
+    const int anchorIdx = rangeAnchorIndex;
+    rangeAnchorIndex = -1;
+
+    editNotes([&](std::vector<MpeNote>& notes)
+    {
+        for (auto& n : notes)
+        {
+            if (n.id != noteId)
+                continue;
+            const auto& pts = n.bend.getPoints();
+            if (anchorIdx >= (int) pts.size() || pointIndex >= (int) pts.size())
                 break;
+            const double a = pts[(size_t) anchorIdx].beat;
+            const double b = pts[(size_t) pointIndex].beat;
+            n.shapeFromBeat = juce::jmin(a, b);
+            n.shapeToBeat   = juce::jmax(a, b);
+            if (n.shape == BendShape::straight)
+            {
+                n.shape = BendShape::sine;
+                n.shapeAmpStart = 0.0f;
+                n.shapeAmpEnd   = 0.25f;
             }
+            break;
+        }
     });
     repaint();
 }
@@ -311,7 +383,7 @@ void PianoRollComponent::toggleSelected(const juce::Uuid& id)
     else                       selection.push_back(id);
 }
 
-void PianoRollComponent::clearSelection() { selection.clear(); }
+void PianoRollComponent::clearSelection() { selection.clear(); rangeAnchorIndex = -1; }
 
 juce::Uuid PianoRollComponent::soleSelection() const
 {
@@ -590,8 +662,9 @@ void PianoRollComponent::paint(juce::Graphics& g)
         constexpr auto cap   = juce::PathStrokeType::butt;
 
         // ribbon thickness follows the zoom (row height), so it never swamps the
-        // grid when zoomed right out
-        const float core = juce::jlimit(2.0f, 11.0f, rowHeight * 0.52f) + (selected ? 1.5f : 0.0f);
+        // grid when zoomed right out - kept on the thin side so adjacent notes at
+        // neighbouring pitches don't crowd each other's click area
+        const float core = juce::jlimit(1.5f, 8.0f, rowHeight * 0.38f) + (selected ? 1.5f : 0.0f);
 
         if (n.isSounding)
         {
@@ -643,10 +716,19 @@ void PianoRollComponent::paint(juce::Graphics& g)
         if (auto* n = findNote(snapshot, sole))
         {
             const auto& pts = n->bend.getPoints();
-            for (auto& pt : pts)
+            for (int pi = 0; pi < (int) pts.size(); ++pi)
             {
+                auto& pt = pts[(size_t) pi];
                 auto x = xForBeat(n->startBeat + juce::jlimit(0.0, n->lengthBeats, pt.beat));
                 auto y = yForPitch((float) n->pitch + pt.value);
+
+                if (rangeAnchorNoteId == n->id && rangeAnchorIndex == pi)
+                {
+                    g.setColour(Theme::accent);
+                    g.drawEllipse(x - pointRadius - 3.0f, y - pointRadius - 3.0f,
+                                  (pointRadius + 3.0f) * 2.0f, (pointRadius + 3.0f) * 2.0f, 2.0f);
+                }
+
                 if (pt.shaper)
                 {
                     const float r = pointRadius - 0.3f;
@@ -981,6 +1063,15 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
                 return false;
 
             selectOnly(n.id);
+
+            // Shift-click a point: anchor / apply a wave section instead of dragging.
+            if (e.mods.isShiftDown())
+            {
+                pickShapeRangePoint(n.id, idx);
+                repaint();
+                return true;
+            }
+
             dragMode = DragMode::movePoint;
             dragNoteId = n.id;
             dragPointIndex = idx;
@@ -1158,7 +1249,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
 
                 if (dragMode == DragMode::shapeCycles)
                 {
-                    const double spanB = n.bend.lastBeat() - n.bend.firstBeat();
+                    const double spanB = n.shapeSpanLastBeat() - n.shapeSpanFirstBeat();
                     const float cycMax = cycMaxFor(spanB);
                     float cyc = 1.0f + juce::jlimit(0.0f, 1.0f, (pos.x - s.x0) / span) * (cycMax - 1.0f);
                     cyc = std::round(cyc * 2.0f) / 2.0f;   // always 0.5-cycle steps: the wave ends on the chord
@@ -1381,5 +1472,11 @@ bool PianoRollComponent::keyPressed(const juce::KeyPress& key)
     if (c == 'b' || c == 'B') { setTool(Tool::draw);   if (onToolChanged) onToolChanged(Tool::draw);   return true; }
     if (c == 's' || c == 'S') { setTool(Tool::select); if (onToolChanged) onToolChanged(Tool::select); return true; }
     if (c == 'm' || c == 'M') { beginGesture(); toggleMuteSelected(); endGesture(); return true; }
+
+    // 1/2/3: set every selected note's shape (straight/triangle/sine) at once -
+    // same three choices as the wheel, but works across a multi-selection.
+    if (c == '1') { beginGesture(); setShapeForSelection(BendShape::straight); endGesture(); return true; }
+    if (c == '2') { beginGesture(); setShapeForSelection(BendShape::triangle); endGesture(); return true; }
+    if (c == '3') { beginGesture(); setShapeForSelection(BendShape::sine);     endGesture(); return true; }
     return false;
 }

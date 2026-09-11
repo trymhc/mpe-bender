@@ -179,6 +179,27 @@ struct MpeNote
     float shapeAmpStart = 0.0f;    // wave amplitude (semitones) at the start point
     float shapeAmpEnd   = 2.0f;    // wave amplitude (semitones) at the end point
 
+    // The wave rides on top of the chord between two bend points, picked in the
+    // editor (Shift-click a pair of points). -1 means "not set" - the wave then
+    // spans the whole note, first bend point to last, as it always used to.
+    double shapeFromBeat = -1.0;
+    double shapeToBeat   = -1.0;
+
+    bool hasShapeRange() const { return shapeFromBeat >= 0.0 && shapeToBeat > shapeFromBeat; }
+    // Clamped to the note's current bend span, so shrinking a note after picking a
+    // section (e.g. dragging its end in) can't leave the wave reaching past the end.
+    double shapeSpanFirstBeat() const
+    {
+        return hasShapeRange() ? juce::jlimit(0.0, bend.lastBeat(), shapeFromBeat) : bend.firstBeat();
+    }
+    double shapeSpanLastBeat() const
+    {
+        if (! hasShapeRange())
+            return std::max(bend.lastBeat(), bend.firstBeat() + 1.0e-6);
+        const double first = shapeSpanFirstBeat();
+        return std::max(first + 1.0e-6, juce::jlimit(first, bend.lastBeat(), shapeToBeat));
+    }
+
     float shapeCycleCount() const { return juce::jmax(1.0f, shapeCycles); }
 
     bool muted = false;   // skipped by the engine; drawn hollow in the roll
@@ -196,8 +217,11 @@ struct MpeNote
         if (shape == BendShape::straight)
             return chord;
 
-        const double first = bend.firstBeat();
-        const double last  = std::max(bend.lastBeat(), first + 1.0e-6);
+        const double first = shapeSpanFirstBeat();
+        const double last  = shapeSpanLastBeat();
+        if (beatOffset < first - 1.0e-9 || beatOffset > last + 1.0e-9)
+            return chord;   // outside the picked section - straight chord, no wave
+
         const float t = (float) juce::jlimit(0.0, 1.0, (beatOffset - first) / (last - first));
 
         const float amp    = shapeAmpStart + t * (shapeAmpEnd - shapeAmpStart);
