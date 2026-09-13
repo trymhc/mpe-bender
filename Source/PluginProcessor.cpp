@@ -1,10 +1,28 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "GlobalPrefs.h"
 
 MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     : AudioProcessor(BusesProperties()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
+    // Start from your last-used settings (theme, scale, loop length, ...) rather
+    // than hard-coded defaults, so a brand-new instance looks like the last one
+    // you had open. A DAW project's own saved state (if any) overwrites this
+    // right after, in setStateInformation.
+    auto prefs = GlobalPrefs::load();
+    themeId = prefs.themeId;
+    engine.setPitchBendRangeSemitones(prefs.pitchBendRange);
+    engine.setNumMemberChannels(prefs.numMemberChannels);
+    forwardHostMidi.store(prefs.forwardHostMidi, std::memory_order_relaxed);
+    scaleRoot = ((prefs.scaleRoot % 12) + 12) % 12;
+    scaleType = prefs.scaleType;
+    snapToScale = prefs.snapToScale;
+    gridDivision = prefs.gridDivision;
+    loopLengthBeats = juce::jmax(0.25, prefs.loopLengthBeats);
+    topBarColourArgb = prefs.topBarColourArgb;
+    settingsBgColourArgb = prefs.settingsBgColourArgb;
+
     // The standalone has no host feeding it notes, so default it to free-run;
     // inside a DAW default to gated (silent until the channel sends a note).
     freeRun.store(wrapperType == wrapperType_Standalone, std::memory_order_relaxed);
@@ -14,6 +32,23 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     // message thread (can't create a VST3 instance here); skipped if the host
     // restores a saved synth first.
     triggerAsyncUpdate();
+}
+
+void MpePianoRollAudioProcessor::saveGlobalPrefs() const
+{
+    GlobalPrefs p;
+    p.themeId = themeId;
+    p.pitchBendRange = engine.getPitchBendRangeSemitones();
+    p.numMemberChannels = engine.getNumMemberChannels();
+    p.forwardHostMidi = forwardHostMidi.load(std::memory_order_relaxed);
+    p.scaleRoot = scaleRoot;
+    p.scaleType = scaleType;
+    p.snapToScale = snapToScale;
+    p.gridDivision = gridDivision;
+    p.loopLengthBeats = loopLengthBeats;
+    p.topBarColourArgb = topBarColourArgb;
+    p.settingsBgColourArgb = settingsBgColourArgb;
+    p.save();
 }
 
 juce::File MpePianoRollAudioProcessor::rememberedSynthFile()
@@ -172,18 +207,69 @@ void MpePianoRollAudioProcessor::handleAsyncUpdate()
 void MpePianoRollAudioProcessor::setLoopLengthBeats(double beats)
 {
     loopLengthBeats = juce::jmax(0.25, beats);
+    saveGlobalPrefs();
 }
 
 void MpePianoRollAudioProcessor::setPitchBendRangeSemitones(int semitones)
 {
     engine.setPitchBendRangeSemitones(semitones);
     zoneConfigSent = false;
+    saveGlobalPrefs();
 }
 
 void MpePianoRollAudioProcessor::setNumMemberChannels(int numChannels)
 {
     engine.setNumMemberChannels(numChannels);
     zoneConfigSent = false;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setForwardHostMidi(bool shouldForward)
+{
+    forwardHostMidi = shouldForward;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setThemeId(int id)
+{
+    themeId = id;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setScaleRoot(int r)
+{
+    scaleRoot = ((r % 12) + 12) % 12;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setScaleType(int t)
+{
+    scaleType = t;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setSnapToScale(bool s)
+{
+    snapToScale = s;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setTopBarColourArgb(juce::uint32 argb)
+{
+    topBarColourArgb = argb;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setSettingsBgColourArgb(juce::uint32 argb)
+{
+    settingsBgColourArgb = argb;
+    saveGlobalPrefs();
+}
+
+void MpePianoRollAudioProcessor::setGridDivision(int n)
+{
+    gridDivision = juce::jlimit(1, 32, n);
+    saveGlobalPrefs();
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +498,9 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
     state.setProperty("scaleRoot", scaleRoot, nullptr);
     state.setProperty("scaleType", scaleType, nullptr);
     state.setProperty("snapToScale", snapToScale, nullptr);
+    state.setProperty("gridDivision", gridDivision, nullptr);
+    state.setProperty("topBarColour", (juce::int64) topBarColourArgb, nullptr);
+    state.setProperty("settingsBgColour", (juce::int64) settingsBgColourArgb, nullptr);
 
     if (hostedPlugin.isLoaded())
     {
@@ -435,16 +524,6 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
             nt.setProperty("velocity", n.velocity, nullptr);
             nt.setProperty("releaseVelocity", n.releaseVelocity, nullptr);
             if (n.muted) nt.setProperty("muted", 1, nullptr);
-            nt.setProperty("shape", (int) n.shape, nullptr);
-            nt.setProperty("shapeCycles", n.shapeCycles, nullptr);
-            nt.setProperty("shapeSkew", n.shapeSkew, nullptr);
-            nt.setProperty("shapeAmpStart", n.shapeAmpStart, nullptr);
-            nt.setProperty("shapeAmpEnd", n.shapeAmpEnd, nullptr);
-            if (n.hasShapeRange())
-            {
-                nt.setProperty("shapeFromBeat", n.shapeFromBeat, nullptr);
-                nt.setProperty("shapeToBeat", n.shapeToBeat, nullptr);
-            }
 
             juce::ValueTree ct("Bend");
             for (auto& p : n.bend.getPoints())
@@ -454,9 +533,34 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
                 pt.setProperty("value", p.value, nullptr);
                 if (p.shaper)
                     pt.setProperty("shaper", 1, nullptr);
+                if (p.hasIn)
+                {
+                    pt.setProperty("inBeat", p.inBeat, nullptr);
+                    pt.setProperty("inValue", p.inValue, nullptr);
+                }
+                if (p.hasOut)
+                {
+                    pt.setProperty("outBeat", p.outBeat, nullptr);
+                    pt.setProperty("outValue", p.outValue, nullptr);
+                }
                 ct.appendChild(pt, nullptr);
             }
             nt.appendChild(ct, nullptr);
+
+            juce::ValueTree wt("Waves");
+            for (auto& ws : n.waveSections)
+            {
+                juce::ValueTree wst("Wave");
+                wst.setProperty("fromBeat", ws.fromBeat, nullptr);
+                wst.setProperty("toBeat", ws.toBeat, nullptr);
+                wst.setProperty("shape", (int) ws.shape, nullptr);
+                wst.setProperty("cycles", ws.cycles, nullptr);
+                wst.setProperty("skew", ws.skew, nullptr);
+                wst.setProperty("ampStart", ws.ampStart, nullptr);
+                wst.setProperty("ampEnd", ws.ampEnd, nullptr);
+                wt.appendChild(wst, nullptr);
+            }
+            nt.appendChild(wt, nullptr);
 
             notesTree.appendChild(nt, nullptr);
         }
@@ -486,6 +590,9 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
     scaleRoot = ((((int) state.getProperty("scaleRoot", 0)) % 12) + 12) % 12;
     scaleType = (int) state.getProperty("scaleType", 0);
     snapToScale = (bool) state.getProperty("snapToScale", false);
+    gridDivision = juce::jlimit(1, 32, (int) state.getProperty("gridDivision", gridDivision));
+    topBarColourArgb = (juce::uint32) (juce::int64) state.getProperty("topBarColour", (juce::int64) topBarColourArgb);
+    settingsBgColourArgb = (juce::uint32) (juce::int64) state.getProperty("settingsBgColour", (juce::int64) settingsBgColourArgb);
     zoneConfigSent = false;
     undoStack.clear();
     redoStack.clear();
@@ -503,16 +610,6 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
         n.velocity = (float) (double) nt.getProperty("velocity", 0.8);
         n.releaseVelocity = (float) (double) nt.getProperty("releaseVelocity", 0.5);
         n.muted = (bool) nt.getProperty("muted", false);
-        n.shape = (BendShape) (int) nt.getProperty("shape", 0);
-        n.shapeCycles = (float) (double) nt.getProperty("shapeCycles", 4.0);
-        if (auto p = nt.getProperty("shapeCyclePeriod", juce::var()); ! p.isVoid())   // 0.8-only field -> count
-            n.shapeCycles = (float) juce::jmax(1.0, n.lengthBeats / juce::jmax(0.03125, (double) p));
-        n.shapeCycles = std::round(n.shapeCycles * 2.0f) / 2.0f;
-        n.shapeSkew     = (float) (double) nt.getProperty("shapeSkew", 1.0);
-        n.shapeAmpStart = (float) (double) nt.getProperty("shapeAmpStart", 0.0);
-        n.shapeAmpEnd   = (float) (double) nt.getProperty("shapeAmpEnd", 2.0);
-        n.shapeFromBeat = (double) nt.getProperty("shapeFromBeat", -1.0);
-        n.shapeToBeat   = (double) nt.getProperty("shapeToBeat", -1.0);
 
         auto deserialiseCurve = [&](ExpressionCurve& curve, const char* tagName)
         {
@@ -527,11 +624,68 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
                                (float) (double) pt.getProperty("value", 0.0),
                                (bool) pt.getProperty("shaper", false));
             }
+            // second pass: apply Bezier handles now that every point exists to attach them to
+            for (int p = 0; p < ct.getNumChildren(); ++p)
+            {
+                auto pt = ct.getChild(p);
+                const double beat = (double) pt.getProperty("beat", 0.0);
+                int idx = -1;
+                auto& cpts = curve.getPoints();
+                for (int i = 0; i < (int) cpts.size(); ++i)
+                    if (std::abs(cpts[(size_t) i].beat - beat) < 1.0e-6) { idx = i; break; }
+                if (idx < 0)
+                    continue;
+                if (auto v = pt.getProperty("inBeat", juce::var()); ! v.isVoid())
+                    curve.setInHandle(idx, (double) v, (float) (double) pt.getProperty("inValue", 0.0));
+                if (auto v = pt.getProperty("outBeat", juce::var()); ! v.isVoid())
+                    curve.setOutHandle(idx, (double) v, (float) (double) pt.getProperty("outValue", 0.0));
+            }
         };
 
         deserialiseCurve(n.bend, "Bend");
         deserialiseCurve(n.bend, "PitchBend");   // accept the pre-0.3 tag name too
         n.lengthBeats = n.bend.conformEnd(n.lengthBeats);
+
+        auto wavesTree = nt.getChildWithName("Waves");
+        if (wavesTree.isValid())
+        {
+            for (int w = 0; w < wavesTree.getNumChildren(); ++w)
+            {
+                auto wst = wavesTree.getChild(w);
+                WaveSection ws;
+                ws.fromBeat = (double) wst.getProperty("fromBeat", 0.0);
+                ws.toBeat   = (double) wst.getProperty("toBeat", 1.0);
+                ws.shape    = (BendShape) (int) wst.getProperty("shape", (int) BendShape::sine);
+                ws.cycles   = (float) (double) wst.getProperty("cycles", 4.0);
+                ws.skew     = (float) (double) wst.getProperty("skew", 1.0);
+                ws.ampStart = (float) (double) wst.getProperty("ampStart", 0.0);
+                ws.ampEnd   = (float) (double) wst.getProperty("ampEnd", 0.25);
+                n.waveSections.push_back(ws);
+            }
+        }
+        else
+        {
+            // pre-0.3.4 project: a single shape lived directly on the note
+            const int oldShape = (int) nt.getProperty("shape", 0);
+            if (oldShape != 0)   // != BendShape::straight
+            {
+                const double oldFrom = (double) nt.getProperty("shapeFromBeat", -1.0);
+                const double oldTo   = (double) nt.getProperty("shapeToBeat", -1.0);
+                float oldCycles = (float) (double) nt.getProperty("shapeCycles", 4.0);
+                if (auto p = nt.getProperty("shapeCyclePeriod", juce::var()); ! p.isVoid())   // 0.8-only field -> count
+                    oldCycles = (float) juce::jmax(1.0, n.lengthBeats / juce::jmax(0.03125, (double) p));
+
+                WaveSection ws;
+                ws.fromBeat = oldFrom >= 0.0 ? oldFrom : 0.0;
+                ws.toBeat   = (oldFrom >= 0.0 && oldTo > oldFrom) ? oldTo : n.lengthBeats;
+                ws.shape    = (BendShape) oldShape;
+                ws.cycles   = juce::jmax(1.0f, std::round(oldCycles * 2.0f) / 2.0f);
+                ws.skew     = (float) (double) nt.getProperty("shapeSkew", 1.0);
+                ws.ampStart = (float) (double) nt.getProperty("shapeAmpStart", 0.0);
+                ws.ampEnd   = (float) (double) nt.getProperty("shapeAmpEnd", 2.0);
+                n.waveSections.push_back(ws);
+            }
+        }
 
         loaded.push_back(n);
     }

@@ -134,7 +134,12 @@ void MpeEngine::triggerNoteOn(MpeNote& note, std::vector<MpeNote>& notes, juce::
     note.isSounding = true;
     channels[ch].notePitch = note.pitch;
 
-    auto pb = note.bendOffsetAt(0.0);
+    // Normally 0 (a note always starts fresh at its own beginning). Positive
+    // when catching up on a note already in progress at blockStartBeat, so its
+    // pitch bend picks up from wherever it actually is instead of snapping back
+    // to the note's starting value for an instant.
+    const double relBeat = juce::jmax(0.0, blockStartBeat - note.startBeat);
+    auto pb = note.bendOffsetAt(relBeat);
 
     buffer.addEvent(juce::MidiMessage::pitchWheel(ch, pitchBendTo14Bit(pb, pitchBendRangeSemitones)), sampleOffset);
     buffer.addEvent(juce::MidiMessage::noteOn(ch, juce::jlimit(0, 127, note.pitch), note.velocity), sampleOffset);
@@ -196,7 +201,15 @@ void MpeEngine::renderBlock(std::vector<MpeNote>& notes,
 
         if (!note.isSounding)
         {
-            if (note.startBeat >= blockStartBeat && note.startBeat < blockEndBeat)
+            // Overlap, not "starts in this block": if playback begins (or the
+            // gate opens) partway through a note's span - e.g. the host's
+            // playhead was sitting mid-loop rather than at beat 0 when you hit
+            // play - the note's startBeat is already behind blockStartBeat and
+            // the old "starts in this exact block" check would skip it forever
+            // (blocks never revisit a beat once they've moved past it). This
+            // catches it up immediately instead; triggerNoteOn's own sample-offset
+            // clamp lands it right at the top of the block.
+            if (note.startBeat < blockEndBeat && note.endBeat() > blockStartBeat)
                 triggerNoteOn(note, notes, buffer, blockStartBeat, samplesPerBeat);
         }
         else if (note.startBeat < blockStartBeat)

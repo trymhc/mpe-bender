@@ -91,27 +91,43 @@ public:
 
     // Pass MIDI arriving from the host straight through to the hosted synth as well,
     // so you can still play Serum from a keyboard / host clip.
-    void setForwardHostMidi(bool shouldForward) { forwardHostMidi = shouldForward; }
+    void setForwardHostMidi(bool shouldForward);
     bool getForwardHostMidi() const { return forwardHostMidi; }
 
     // Free run: when true the piano-roll loop always plays with the transport.
     // When false (default) it only plays while the host is sending it note(s) -
-    // so a disabled / empty channel in the DAW stays silent.
+    // so a disabled / empty channel in the DAW stays silent. Deliberately not
+    // remembered globally: a fresh instance inside a DAW should always start
+    // gated, even if you last had free-run on somewhere else.
     void setFreeRun(bool shouldFreeRun) { freeRun = shouldFreeRun; }
     bool getFreeRun() const { return freeRun; }
     bool getUiGateOpen() const { return uiGateOpen.load(std::memory_order_relaxed); }
 
     // UI theme index (see Theme::Id). Stored with the project; the editor applies it.
-    void setThemeId(int id) { themeId = id; }
+    void setThemeId(int id);
     int getThemeId() const { return themeId; }
 
     // --- Scale viewer (stored with the project) ---
-    void setScaleRoot(int r)   { scaleRoot = ((r % 12) + 12) % 12; }
-    void setScaleType(int t)   { scaleType = t; }
-    void setSnapToScale(bool s){ snapToScale = s; }
+    void setScaleRoot(int r);
+    void setScaleType(int t);
+    void setSnapToScale(bool s);
     int  getScaleRoot() const  { return scaleRoot; }
     int  getScaleType() const  { return scaleType; }
     bool getSnapToScale() const { return snapToScale; }
+
+    // --- Note-placement grid (stored with the project) ---
+    // The grid is 1/N of a beat; N is one of gridDivisionPresets below. Default 4
+    // (a 16th note) matches the grid this always used before it was adjustable.
+    void setGridDivision(int n);
+    int  getGridDivision() const { return gridDivision; }
+    static constexpr int gridDivisionPresets[] = { 1, 2, 3, 4, 6, 8, 12, 16 };
+    static constexpr int numGridDivisionPresets = 8;
+
+    // --- Customisable background colours (Settings tab); 0 = theme default ---
+    void setTopBarColourArgb(juce::uint32 argb);
+    juce::uint32 getTopBarColourArgb() const { return topBarColourArgb; }
+    void setSettingsBgColourArgb(juce::uint32 argb);
+    juce::uint32 getSettingsBgColourArgb() const { return settingsBgColourArgb; }
 
     double getUiPlayheadBeat() const { return uiPlayheadBeat.load(std::memory_order_relaxed); }
     bool getUiIsPlaying() const { return uiIsPlaying.load(std::memory_order_relaxed); }
@@ -134,6 +150,7 @@ public:
 private:
     void handleAsyncUpdate() override;   // performs a deferred hosted-plugin load (message thread)
     void hardResetPlayback(juce::MidiBuffer& midiBuffer);
+    void saveGlobalPrefs() const;   // writes the current settings to the remembered-prefs file
 
     mutable juce::CriticalSection notesLock;
     std::vector<MpeNote> notes;
@@ -159,6 +176,10 @@ private:
     int scaleRoot = 0;         // 0 = C
     int scaleType = 0;         // Scale::chromatic (viewer off)
     bool snapToScale = false;
+    int gridDivision = 4;      // grid = 1/4 beat (a 16th note)
+
+    juce::uint32 topBarColourArgb = 0;       // 0 = theme default
+    juce::uint32 settingsBgColourArgb = 0;
 
     // undo/redo snapshots (message-thread only)
     std::vector<std::vector<MpeNote>> undoStack, redoStack;

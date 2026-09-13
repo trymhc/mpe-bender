@@ -9,26 +9,37 @@
 // The note grid. Each note is a ribbon: a piecewise-linear "chord" through its
 // bend points, optionally with a sine / triangle wave riding on top.
 //
-// Draw tool: click empty = new note; drag body = move; drag right edge = length +
-//   tail bend; Ctrl+click or double-click the ribbon = add a bend point; drag a
-//   bend point = shape the chord; right-click = delete.
-//   When one note is selected, the shape controls appear around it (a straight /
-//   sine / triangle wheel, plus cycles / squeeze / start- and end-amplitude
-//   sliders when the shape is a wave). By default the wave rides the whole note;
-//   Shift-click one bend point then Shift-click another on the same note to pick
-//   just the section between them instead (Shift-click either one again to cancel).
+// Draw tool: click empty = new note; drag body = move; drag either edge = trim/
+//   extend from that side (the other end stays put); Ctrl+click the ribbon = add
+//   a bend point; drag a bend point = move it; right-click = delete.
+//   Double-click a bend point to give it Bezier tangent handles (drag them out to
+//   bow the curve approaching/leaving that point, like a vector-editor anchor -
+//   double-click again to remove them).
+//   When one note is selected, shape controls (a straight/sine/triangle wheel,
+//   plus cycles/squeeze/start- and end-amplitude sliders when it's a wave) appear
+//   around whichever wave section is active. Shift-click one bend point then
+//   Shift-click another on the same note to pick the section between them - a
+//   note can have any number of independent, non-overlapping sections this way;
+//   whichever you last picked (or created via the wheel) is the active one
+//   (Shift-click either endpoint of the active pick again to cancel it).
 //   1 / 2 / 3 set every selected note's shape (straight / triangle / sine) at once,
-//   whole-note, for a multi-selection.
+//   whole-note, for a multi-selection - a wheel also appears under a multi-selection
+//   for the same thing with the mouse.
 //   Hold Shift while dragging = temporarily the Select tool. Hold Alt = fine.
 // Select tool: box-drag = marquee select (Shift adds); drag a selected note = move
-//   the whole selection; drag a right edge = resize all selected; Delete removes.
+//   the whole selection; drag an edge = trim/extend all selected from that side;
+//   Delete removes.
+// Cut tool ('c'): click a note to slice it into two at that point.
+// Global: Ctrl+A selects every note; Ctrl+Up/Down transposes the selection an
+//   octave, or every note if nothing's selected; Ctrl+right-click zooms all the
+//   way out; Alt+Y reverses the selection in time (FL-style).
 class PianoRollComponent final : public juce::Component, private juce::Timer
 {
 public:
     explicit PianoRollComponent(MpePianoRollAudioProcessor& processorToUse);
     ~PianoRollComponent() override { stopTimer(); }
 
-    enum class Tool { draw, select };
+    enum class Tool { draw, select, cut };
     void setTool(Tool t) { tool = t; repaint(); }
     Tool getTool() const { return tool; }
     std::function<void(Tool)> onToolChanged;
@@ -58,6 +69,7 @@ public:
     void zoomAxes(float fx, float fy, float anchorX, float anchorY);
     void zoomBoth(float factor, float anchorX, float anchorY);
     void resetZoom();
+    void zoomAllTheWayOut();   // Ctrl+right-click
     void updateContentSize();
 
     bool hasSoleSelection() const { return selection.size() == 1; }
@@ -67,7 +79,7 @@ private:
 
     enum class DragMode
     {
-        none, marquee, moveNotes, movePoint, resizeEnds,
+        none, marquee, moveNotes, movePoint, resizeEnds, resizeStart, bendHandle,
         shapeCycles, shapeSqueeze, shapeAmpStart, shapeAmpEnd
     };
 
@@ -87,16 +99,17 @@ private:
     {
         return juce::jmax(0.0, (double) ((x - (float) keyboardWidth) / pixelsPerBeat));
     }
-    static double snapBeat(double beat, bool fine)
+    double gridBeats() const { return 1.0 / (double) juce::jmax(1, processor.getGridDivision()); }
+    double snapBeat(double beat, bool fine) const
     {
         if (fine) return juce::jmax(0.0, beat);
-        constexpr double grid = 0.25;
+        const double grid = gridBeats();
         return juce::jmax(0.0, std::round(beat / grid) * grid);
     }
-    static double snapDelta(double delta, bool fine)
+    double snapDelta(double delta, bool fine) const
     {
         if (fine) return delta;
-        constexpr double grid = 0.25;
+        const double grid = gridBeats();
         return std::round(delta / grid) * grid;
     }
 
@@ -111,8 +124,14 @@ private:
     int pointIndexAt(const MpeNote& note, juce::Point<float> pos) const;
     bool ribbonHit(const MpeNote& note, juce::Point<float> pos) const;
     bool nearRightEdge(const MpeNote& note, juce::Point<float> pos) const;
+    bool nearLeftEdge(const MpeNote& note, juce::Point<float> pos) const;
     void buildNotePath(const MpeNote& note, juce::Path& path) const;
     juce::Range<float> pitchExtent(const MpeNote& note) const;
+
+    // Bezier tangent handles (drag out from a point via double-click to enable).
+    struct HandleHit { int pointIndex = -1; bool isOut = false; };
+    HandleHit handleIndexAt(const MpeNote& note, juce::Point<float> pos) const;
+    bool draggingOutHandle = false;   // which side of dragPointIndex, when dragMode == bendHandle
 
     bool isSelected(const juce::Uuid& id) const;
     void selectOnly(const juce::Uuid& id);
@@ -126,6 +145,10 @@ private:
     void pasteClipboard();
     void duplicateSelectionAfter();      // Ctrl+B: copies start where the selection ends
     void nudgeSelectionPitch(int semitones);
+    void nudgeAllPitch(int semitones);   // Ctrl+Up/Down with nothing selected: transpose everything
+    void selectAll();                    // Ctrl+A
+    void cutNoteAt(juce::Point<float> contentPos);   // Cut tool: slice a note into two
+    void reverseSelection();             // Alt+Y: mirror the selection in time (and each note's curve)
 
     // Every note mutation goes through this so one gesture = one undo step.
     template <typename Fn>
@@ -147,32 +170,51 @@ private:
         gestureStashValid = false;
         gestureDidEdit = false;
     }
-    void beginMoveNotes(juce::Point<float> pos, const std::vector<MpeNote>& snapshot);
+    // leadNoteId: the note actually grabbed (if known) - with snap-to-scale on, its
+    // snapped landing pitch decides the whole selection's pitch delta, so a
+    // multi-note ("chord") drag moves in lock-step. Defaults to the first origin.
+    void beginMoveNotes(juce::Point<float> pos, const std::vector<MpeNote>& snapshot,
+                        const juce::Uuid& leadNoteId = {});
     void updateMarquee(juce::Point<float> pos, const std::vector<MpeNote>& snapshot, bool additive);
 
     const MpeNote* findNote(const std::vector<MpeNote>& snap, const juce::Uuid& id) const;
 
-    // The shape editor overlay drawn around the sole-selected note.
+    // The shape editor overlay, drawn around whichever wave section of the
+    // sole-selected note is currently active for editing (see
+    // effectiveShapeSectionIndex / shapeEditSectionIndex below).
     struct ShapeUI
     {
         bool valid = false;
         juce::Uuid noteId;
-        float x0 = 0, y0 = 0, x1 = 0, y1 = 0;   // first / last bend point, screen space
+        float x0 = 0, y0 = 0, x1 = 0, y1 = 0;   // section start / end, screen space
         juce::Point<float> wheel;               // 3-slice shape selector centre
         float wheelR = 15.0f;
-        bool wave = false;                      // shape != straight -> extra controls
+        bool wave = false;                      // an actual section here -> extra controls
+        BendShape currentShape = BendShape::straight;
+        float ampStart = 0.0f, ampEnd = 0.0f, cycles = 4.0f, skew = 1.0f;   // display copies of the active WaveSection
         juce::Rectangle<float> cyclesTrack, squeezeTrack;
         juce::Point<float> cyclesH, squeezeH;
         juce::Point<float> ampStartKnob, ampEndKnob;
         float knobR = 9.0f;
     };
     ShapeUI shapeUIFor(const MpeNote& note) const;
-    void setNoteShape(const juce::Uuid& id, BendShape s);
+    ShapeUI multiShapeWheelFor(const std::vector<MpeNote>& snapshot) const;   // wheel under a multi-selection
+    void drawShapeWheel(juce::Graphics& g, const ShapeUI& s, const BendShape* highlight) const;
+    void setActiveSectionShape(const juce::Uuid& id, BendShape s);   // wheel click: the section shapeUIFor is showing
     void setShapeForSelection(BendShape s);   // bulk-apply to every selected note (whole note)
     int wheelSliceAt(const ShapeUI& s, juce::Point<float> pos) const;   // -1, 0=STR, 1=TRI, 2=SIN
 
+    // Which of a note's waveSections the shape wheel/sliders are currently
+    // driving. -1 with the note having no sections shows the whole-note "pick a
+    // shape to create one" wheel; always re-validated against the note actually
+    // passed in, so switching selection to a note with fewer/no sections just
+    // falls back cleanly instead of needing an explicit reset.
+    int effectiveShapeSectionIndex(const MpeNote& note) const;
+    int shapeEditSectionIndex = -1;
+
     // Shift-click a bend point to anchor a wave section, Shift-click a second point
-    // on the same note to apply it (the two points bound where the wave rides).
+    // on the same note to apply it (the two points bound where the wave rides) -
+    // becomes the active section for the wheel/sliders above.
     void pickShapeRangePoint(const juce::Uuid& noteId, int pointIndex);
     juce::Uuid rangeAnchorNoteId;
     int rangeAnchorIndex = -1;
@@ -197,6 +239,7 @@ private:
 
     DragMode dragMode = DragMode::none;
     juce::Uuid dragNoteId;
+    juce::Uuid dragLeadNoteId;   // DragMode::moveNotes: which origin drives the scale-snap delta
     int dragPointIndex = -1;
     float shapeGrabY = 0.0f, shapeGrabVal = 0.0f;   // for the amplitude knobs
 
@@ -212,6 +255,8 @@ private:
     double lastNoteLength = 1.0;
     struct EndOrigin { juce::Uuid id; double lengthBeats = 1.0; float endValue = 0.0f; };
     std::vector<EndOrigin> endOrigins;
+
+    std::vector<MpeNote> resizeStartOrigins;   // DragMode::resizeStart: full pre-drag snapshots
 
     static constexpr float pointRadius = 4.0f;
 

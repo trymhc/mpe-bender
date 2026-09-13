@@ -13,7 +13,8 @@
 #include <functional>
 
 class MpePianoRollAudioProcessorEditor final : public juce::AudioProcessorEditor,
-                                                private juce::Timer
+                                                private juce::Timer,
+                                                private juce::ChangeListener
 {
 public:
     explicit MpePianoRollAudioProcessorEditor(MpePianoRollAudioProcessor&);
@@ -36,6 +37,21 @@ private:
                          std::function<void(juce::String)> onAccept);
 
     void importMidi();
+
+    // Passively mirrors the processor's current settings into the UI widgets -
+    // called once after setup and on every timer tick, so if a host restores
+    // state after the editor is already built (some hosts do this, e.g. cloning
+    // a plugin instance), the UI catches up instead of staying stuck on whatever
+    // it showed at construction.
+    void refreshSettingsFromProcessor();
+
+    // custom background colours (Settings tab)
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+    void showColourPicker(juce::Component& attachTo, juce::Colour initial,
+                          std::function<void(juce::Colour)> onChange);
+    juce::Colour currentTopBarColour() const;
+    juce::Colour currentSettingsBgColour() const;
+    void refreshColourSwatches();
 
     enum class Tab { roll, settings };
     void showTab(Tab t);
@@ -74,9 +90,17 @@ private:
     juce::ComboBox themeBox;
     void applyTheme(Theme::Id id, bool store);
 
+    juce::Label bgColourLabel { {}, "Background colours" };
+    juce::TextButton topBarColourButton { "Top bar..." };
+    juce::TextButton settingsBgColourButton { "Settings..." };
+    juce::TextButton resetColoursButton { "Reset" };
+    std::function<void(juce::Colour)> activeColourCallback;
+
     juce::Label scaleLabel { {}, "Scale" };
     juce::ComboBox scaleRootBox, scaleTypeBox;
     juce::TextButton snapToScaleButton { "Snap" };
+    juce::Label gridLabel { {}, "Grid" };
+    juce::ComboBox gridBox;
     juce::TextButton importMidiButton { "Import MIDI" };
 
     juce::Label updateLabel { {}, "Updates" };

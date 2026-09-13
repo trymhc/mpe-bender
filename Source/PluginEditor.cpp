@@ -59,7 +59,6 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
 
     setupNumber(loopLengthSlider, loopLabel, 4.0, 16.0,
                 juce::jlimit(4.0, 16.0, processor.getLoopLengthBeats() / 4.0));
-    processor.setLoopLengthBeats(loopLengthSlider.getValue() * 4.0);
     loopLengthSlider.onValueChange = [this]
     {
         processor.setLoopLengthBeats(loopLengthSlider.getValue() * 4.0);   // number is in bars (4/4)
@@ -95,6 +94,47 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
     };
     addAndMakeVisible(themeBox);
 
+    // --- custom background colours ---
+    bgColourLabel.setJustificationType(juce::Justification::centredLeft);
+    bgColourLabel.setColour(juce::Label::textColourId, Theme::text);
+    addAndMakeVisible(bgColourLabel);
+
+    addAndMakeVisible(topBarColourButton);
+    topBarColourButton.setTooltip("Pick a custom background colour for the bar above the piano roll "
+                                  "(tabs, loop/scale/synth controls).");
+    topBarColourButton.onClick = [this]
+    {
+        showColourPicker(topBarColourButton, currentTopBarColour(), [this](juce::Colour c)
+        {
+            processor.setTopBarColourArgb(c.getARGB());
+            refreshColourSwatches();
+            repaint();
+        });
+    };
+
+    addAndMakeVisible(settingsBgColourButton);
+    settingsBgColourButton.setTooltip("Pick a custom background colour for this Settings tab.");
+    settingsBgColourButton.onClick = [this]
+    {
+        showColourPicker(settingsBgColourButton, currentSettingsBgColour(), [this](juce::Colour c)
+        {
+            processor.setSettingsBgColourArgb(c.getARGB());
+            refreshColourSwatches();
+            repaint();
+        });
+    };
+
+    addAndMakeVisible(resetColoursButton);
+    resetColoursButton.setTooltip("Back to the theme's own background colours.");
+    resetColoursButton.onClick = [this]
+    {
+        processor.setTopBarColourArgb(0);
+        processor.setSettingsBgColourArgb(0);
+        refreshColourSwatches();
+        repaint();
+    };
+    refreshColourSwatches();
+
     // --- scale viewer ---
     scaleLabel.setJustificationType(juce::Justification::centredLeft);
     scaleLabel.setColour(juce::Label::textColourId, Theme::text);
@@ -129,6 +169,29 @@ MpePianoRollAudioProcessorEditor::MpePianoRollAudioProcessorEditor(MpePianoRollA
 
     scaleRootBox.setTooltip("Scale root note.");
     scaleTypeBox.setTooltip("Highlight this scale in the piano roll (Chromatic = off).");
+
+    // --- note-placement grid ---
+    gridLabel.setJustificationType(juce::Justification::centredLeft);
+    gridLabel.setColour(juce::Label::textColourId, Theme::text);
+    addAndMakeVisible(gridLabel);
+
+    for (int i = 0; i < MpePianoRollAudioProcessor::numGridDivisionPresets; ++i)
+        gridBox.addItem("1/" + juce::String(MpePianoRollAudioProcessor::gridDivisionPresets[i]), i + 1);
+    {
+        int selId = 4;   // 1/4, the long-standing default
+        for (int i = 0; i < MpePianoRollAudioProcessor::numGridDivisionPresets; ++i)
+            if (MpePianoRollAudioProcessor::gridDivisionPresets[i] == processor.getGridDivision())
+                selId = i + 1;
+        gridBox.setSelectedId(selId, juce::dontSendNotification);
+    }
+    gridBox.setTooltip("Note-placement grid, as a fraction of a beat.");
+    gridBox.onChange = [this]
+    {
+        const int idx = gridBox.getSelectedId() - 1;
+        if (idx >= 0 && idx < MpePianoRollAudioProcessor::numGridDivisionPresets)
+            processor.setGridDivision(MpePianoRollAudioProcessor::gridDivisionPresets[idx]);
+    };
+    addAndMakeVisible(gridBox);
 
     // --- MIDI file import ---
     addAndMakeVisible(importMidiButton);
@@ -526,6 +589,7 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
                          juce::dontSendNotification);
 
     refreshHostedUi();
+    refreshSettingsFromProcessor();
 
     if (currentTab == Tab::settings)
         refreshUpdateUi();
@@ -533,15 +597,62 @@ void MpePianoRollAudioProcessorEditor::timerCallback()
 
 void MpePianoRollAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(Theme::panel);
-
     if (currentTab == Tab::roll)
     {
-        // separator between the top bar and the piano roll
+        // the roll viewport paints its own background over its own area; this
+        // fill only shows through above it - tab bar, toolbar, synth row, status
+        g.fillAll(currentTopBarColour());
         g.setColour(Theme::separator);
         g.fillRect(0, rollViewport.getY() - 3, getWidth(), 2);
     }
+    else
+    {
+        g.fillAll(currentSettingsBgColour());
+    }
+}
 
+juce::Colour MpePianoRollAudioProcessorEditor::currentTopBarColour() const
+{
+    auto argb = processor.getTopBarColourArgb();
+    return argb != 0 ? juce::Colour(argb) : Theme::panel;
+}
+
+juce::Colour MpePianoRollAudioProcessorEditor::currentSettingsBgColour() const
+{
+    auto argb = processor.getSettingsBgColourArgb();
+    return argb != 0 ? juce::Colour(argb) : Theme::panel;
+}
+
+void MpePianoRollAudioProcessorEditor::refreshColourSwatches()
+{
+    topBarColourButton.setColour(juce::TextButton::buttonColourId, currentTopBarColour());
+    topBarColourButton.setColour(juce::TextButton::textColourOffId, currentTopBarColour().contrasting(0.9f));
+    settingsBgColourButton.setColour(juce::TextButton::buttonColourId, currentSettingsBgColour());
+    settingsBgColourButton.setColour(juce::TextButton::textColourOffId, currentSettingsBgColour().contrasting(0.9f));
+}
+
+void MpePianoRollAudioProcessorEditor::showColourPicker(juce::Component& attachTo, juce::Colour initial,
+                                                        std::function<void(juce::Colour)> onChange)
+{
+    activeColourCallback = std::move(onChange);
+
+    auto selector = std::make_unique<juce::ColourSelector>(
+        juce::ColourSelector::showColourAtTop | juce::ColourSelector::showSliders | juce::ColourSelector::showColourspace);
+    selector->setName("bgColour");
+    selector->setCurrentColour(initial);
+    selector->setSize(300, 380);
+    selector->addChangeListener(this);
+
+    // parented to the editor (not launched free-floating) so it can't outlive us -
+    // JUCE tears down child components, callout included, when their parent does.
+    juce::CallOutBox::launchAsynchronously(std::move(selector), attachTo.getScreenBounds(), this);
+}
+
+void MpePianoRollAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (auto* cs = dynamic_cast<juce::ColourSelector*>(source))
+        if (activeColourCallback)
+            activeColourCallback(cs->getCurrentColour());
 }
 
 void MpePianoRollAudioProcessorEditor::refreshUpdateUi()
@@ -557,6 +668,59 @@ void MpePianoRollAudioProcessorEditor::refreshUpdateUi()
     installUpdateButton.setVisible(ready || st == UpdateChecker::State::updateAvailable);
 }
 
+void MpePianoRollAudioProcessorEditor::refreshSettingsFromProcessor()
+{
+    bool rollNeedsRepaint = false;
+
+    const int themeIdNow = juce::jlimit(0, 2, processor.getThemeId());
+    if (themeBox.getSelectedId() - 1 != themeIdNow)
+        applyTheme((Theme::Id) themeIdNow, false);
+
+    const int barsNow = juce::jlimit(4, 16, (int) std::round(processor.getLoopLengthBeats() / 4.0));
+    if (juce::roundToInt(loopLengthSlider.getValue()) != barsNow)
+    {
+        loopLengthSlider.setValue(barsNow, juce::dontSendNotification);
+        pianoRoll.updateContentSize();
+    }
+
+    if (juce::roundToInt(pbRangeSlider.getValue()) != processor.getPitchBendRangeSemitones())
+    {
+        pbRangeSlider.setValue(processor.getPitchBendRangeSemitones(), juce::dontSendNotification);
+        rollNeedsRepaint = true;
+    }
+
+    if (juce::roundToInt(channelsSlider.getValue()) != processor.getNumMemberChannels())
+        channelsSlider.setValue(processor.getNumMemberChannels(), juce::dontSendNotification);
+
+    if (scaleRootBox.getSelectedId() - 1 != processor.getScaleRoot())
+    {
+        scaleRootBox.setSelectedId(processor.getScaleRoot() + 1, juce::dontSendNotification);
+        rollNeedsRepaint = true;
+    }
+
+    if (scaleTypeBox.getSelectedId() - 1 != processor.getScaleType())
+    {
+        scaleTypeBox.setSelectedId(juce::jlimit(0, (int) Scale::numTypes - 1, processor.getScaleType()) + 1,
+                                   juce::dontSendNotification);
+        rollNeedsRepaint = true;
+    }
+
+    if (snapToScaleButton.getToggleState() != processor.getSnapToScale())
+        snapToScaleButton.setToggleState(processor.getSnapToScale(), juce::dontSendNotification);
+
+    for (int i = 0; i < MpePianoRollAudioProcessor::numGridDivisionPresets; ++i)
+        if (MpePianoRollAudioProcessor::gridDivisionPresets[i] == processor.getGridDivision())
+        {
+            if (gridBox.getSelectedId() != i + 1)
+                gridBox.setSelectedId(i + 1, juce::dontSendNotification);
+            break;
+        }
+
+    refreshColourSwatches();
+    if (rollNeedsRepaint)
+        pianoRoll.repaint();
+}
+
 void MpePianoRollAudioProcessorEditor::applyTheme(Theme::Id id, bool store)
 {
     Theme::apply(id);
@@ -568,7 +732,7 @@ void MpePianoRollAudioProcessorEditor::applyTheme(Theme::Id id, bool store)
 
     for (juce::Label* l : { &loopLabel, &channelsLabel, &pbRangeLabel, &pbRangeHelp, &updateStatusLabel })
         l->setColour(juce::Label::textColourId, Theme::textDim);
-    for (juce::Label* l : { &statusLabel, &themeLabel, &scaleLabel, &updateLabel })
+    for (juce::Label* l : { &statusLabel, &themeLabel, &scaleLabel, &updateLabel, &bgColourLabel, &gridLabel })
         l->setColour(juce::Label::textColourId, Theme::text);
 
     for (juce::Slider* s : { &loopLengthSlider, &pbRangeSlider })
@@ -577,6 +741,13 @@ void MpePianoRollAudioProcessorEditor::applyTheme(Theme::Id id, bool store)
         s->setColour(juce::Slider::textBoxBackgroundColourId, Theme::field);
         s->setColour(juce::Slider::textBoxTextColourId, Theme::text);
     }
+    // channelsSlider uses setupSlider()'s transparent-box style (not setupNumber()'s
+    // boxed one, unlike the two above) so only its text colour needs to track the
+    // theme - it was missing from here entirely, which is why the MPE Channels
+    // number could stay dark-on-dark after switching to Dark/Graphite.
+    channelsSlider.setColour(juce::Slider::textBoxTextColourId, Theme::text);
+
+    refreshColourSwatches();   // an uncustomised swatch tracks the new theme's default
 
     sendLookAndFeelChange();   // pushes the new palette into every child component
     pianoRoll.repaint();
@@ -592,6 +763,7 @@ void MpePianoRollAudioProcessorEditor::showTab(Tab t)
     juce::Component* rollBits[] = { &rollViewport, &keyboardSidebar,
                                    &loopLabel, &loopLengthSlider,
                                    &scaleLabel, &scaleRootBox, &scaleTypeBox, &snapToScaleButton,
+                                   &gridLabel, &gridBox,
                                    &synthBox, &openHostedButton, &freeRunButton, &forwardMidiButton,
                                    &importMidiButton,
                                    &statusLabel };
@@ -601,6 +773,7 @@ void MpePianoRollAudioProcessorEditor::showTab(Tab t)
     juce::Component* settingsBits[] = { &pbRangeLabel, &pbRangeSlider, &pbRangeHelp,
                                        &channelsLabel, &channelsSlider,
                                        &themeLabel, &themeBox,
+                                       &bgColourLabel, &topBarColourButton, &settingsBgColourButton, &resetColoursButton,
                                        &updateLabel, &updateStatusLabel, &checkUpdateButton, &installUpdateButton };
     for (auto* c : settingsBits)
         c->setVisible(! roll);
@@ -667,6 +840,16 @@ void MpePianoRollAudioProcessorEditor::resized()
         s.removeFromTop(12);
         row(channelsLabel, channelsSlider, 190, 24);
         row(themeLabel, themeBox, 150, 26);
+        {
+            auto r = s.removeFromTop(26);
+            bgColourLabel.setBounds(r.removeFromLeft(labelW));
+            topBarColourButton.setBounds(r.removeFromLeft(110).withHeight(24));
+            r.removeFromLeft(8);
+            settingsBgColourButton.setBounds(r.removeFromLeft(110).withHeight(24));
+            r.removeFromLeft(8);
+            resetColoursButton.setBounds(r.removeFromLeft(70).withHeight(24));
+            s.removeFromTop(9);
+        }
         s.removeFromTop(14);
 
         updateLabel.setBounds(s.removeFromTop(20));
@@ -692,6 +875,9 @@ void MpePianoRollAudioProcessorEditor::resized()
     scaleTypeBox.setBounds(toolbar.removeFromLeft(150).withSizeKeepingCentre(150, 24));
     toolbar.removeFromLeft(8);
     snapToScaleButton.setBounds(toolbar.removeFromLeft(72));
+    toolbar.removeFromLeft(12);
+    gridLabel.setBounds(toolbar.removeFromLeft(32));
+    gridBox.setBounds(toolbar.removeFromLeft(64).withSizeKeepingCentre(64, 24));
 
     auto synthBar = area.removeFromTop(28).reduced(6, 2);
     synthBox.setBounds(synthBar.removeFromLeft(196).withSizeKeepingCentre(196, 24));

@@ -5,18 +5,35 @@
 #include <algorithm>
 #include <cmath>
 
-// A node in a note's pitch curve. `shaper` nodes are "diamonds" - they bow the
-// otherwise-straight line between the surrounding bend points; non-shaper nodes
-// are the hard bend points that the curve passes through with a corner.
+// A node in a note's pitch curve. Plain points are joined by a straight line.
+// Either side of a point can also carry its own Bezier tangent handle - drag it
+// out to bow the curve approaching (`in`) or leaving (`out`) that point, same as
+// a vertex handle in a vector-drawing tool. Handle positions are absolute (beat,
+// value); the beat is always kept within the point's own neighbours so a
+// segment's time axis never runs backwards.
+//
+// `shaper` is a legacy flag from the old "diamond" curve tool (a point that bowed
+// a Catmull-Rom spline through it). It's no longer created by the UI, only kept
+// so older projects' curves still play back the same; ExpressionCurve::sample()
+// still honours it when no Bezier handle is present on either side.
 struct CurvePoint
 {
     double beat = 0.0;    // position relative to the note's start, in beats
     float value = 0.0f;   // semitone offset from the note's base pitch
     bool shaper = false;
+
+    bool hasIn = false;
+    double inBeat = 0.0;
+    float inValue = 0.0f;
+
+    bool hasOut = false;
+    double outBeat = 0.0;
+    float outValue = 0.0f;
 };
 
-// Pitch envelope: straight between hard bend points, Catmull-Rom through any run
-// of bendPoint -> shapers... -> bendPoint.
+// Pitch envelope: straight between plain points; a cubic Bezier wherever either
+// endpoint of a segment has a handle; Catmull-Rom through any run of
+// bendPoint -> shapers... -> bendPoint (legacy projects only).
 class ExpressionCurve
 {
 public:
@@ -29,6 +46,11 @@ public:
     const std::vector<CurvePoint>& getPoints() const { return points; }
     int size() const { return (int) points.size(); }
     bool isShaper(int i) const { return i >= 0 && i < (int) points.size() && points[(size_t) i].shaper; }
+    bool hasAnyHandles() const
+    {
+        for (auto& p : points) if (p.hasIn || p.hasOut) return true;
+        return false;
+    }
 
     void clearAndReset()
     {
@@ -38,14 +60,30 @@ public:
 
     int addPoint(double beat, float value, bool shaper = false)
     {
-        CurvePoint p { std::max(0.0, beat), value, shaper };
+        CurvePoint p; p.beat = std::max(0.0, beat); p.value = value; p.shaper = shaper;
         auto insertAt = std::upper_bound(points.begin(), points.end(), p,
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
         auto it = points.insert(insertAt, p);
-        return (int) std::distance(points.begin(), it);
+        const int idx = (int) std::distance(points.begin(), it);
+
+        // A new point landing inside an existing Bezier segment splits it in two;
+        // keep the old neighbours' handles from reaching past the point that just
+        // landed between them, so each segment's time axis stays monotonic.
+        if (idx > 0)
+        {
+            auto& prev = points[(size_t) (idx - 1)];
+            if (prev.hasOut) prev.outBeat = std::min(prev.outBeat, points[(size_t) idx].beat);
+        }
+        if (idx + 1 < (int) points.size())
+        {
+            auto& next = points[(size_t) (idx + 1)];
+            if (next.hasIn) next.inBeat = std::max(next.inBeat, points[(size_t) idx].beat);
+        }
+        return idx;
     }
 
     // Move point `index` in time + value, re-sorting. Point 0 is pinned to beat 0.
+    // Any handles on the point move along with it, keeping their offset.
     int movePoint(int index, double beat, float value)
     {
         if (index < 0 || index >= (int) points.size())
@@ -53,9 +91,16 @@ public:
         if (index == 0)
             beat = 0.0;
 
-        const bool keepShaper = points[(size_t) index].shaper;
+        auto p = points[(size_t) index];
         const double nb = std::max(0.0, beat);
-        points[(size_t) index] = { nb, value, keepShaper };
+        const double dBeat = nb - p.beat;
+        const float dValue = value - p.value;
+        p.beat = nb;
+        p.value = value;
+        if (p.hasIn)  { p.inBeat  += dBeat; p.inValue  += dValue; }
+        if (p.hasOut) { p.outBeat += dBeat; p.outValue += dValue; }
+        points[(size_t) index] = p;
+
         std::stable_sort(points.begin(), points.end(),
             [](const CurvePoint& a, const CurvePoint& b) { return a.beat < b.beat; });
 
@@ -71,6 +116,53 @@ public:
             return;   // keep the first + last points - they span the note
         if (index > 0 && index < (int) points.size() - 1)
             points.erase(points.begin() + index);
+    }
+
+    // Turns a point's Bezier handle(s) on or off. Turning on seeds the handle(s)
+    // 25% of the way toward each neighbour, flat (same value as the point), so
+    // the curve starts out looking unchanged until you drag from there. A point
+    // has no `in` handle if it's the note's first point, no `out` handle if it's
+    // the last.
+    void toggleHandlesAt(int index)
+    {
+        if (index < 0 || index >= (int) points.size())
+            return;
+        auto& p = points[(size_t) index];
+        if (p.hasIn || p.hasOut)
+        {
+            p.hasIn = false;
+            p.hasOut = false;
+            return;
+        }
+        if (index > 0)
+        {
+            auto& prev = points[(size_t) (index - 1)];
+            p.hasIn = true;
+            p.inBeat = p.beat - (p.beat - prev.beat) * 0.25;
+            p.inValue = p.value;
+        }
+        if (index < (int) points.size() - 1)
+        {
+            auto& next = points[(size_t) (index + 1)];
+            p.hasOut = true;
+            p.outBeat = p.beat + (next.beat - p.beat) * 0.25;
+            p.outValue = p.value;
+        }
+    }
+
+    void setInHandle(int index, double beat, float value)
+    {
+        if (index < 0 || index >= (int) points.size()) return;
+        points[(size_t) index].hasIn = true;
+        points[(size_t) index].inBeat = beat;
+        points[(size_t) index].inValue = value;
+    }
+    void setOutHandle(int index, double beat, float value)
+    {
+        if (index < 0 || index >= (int) points.size()) return;
+        points[(size_t) index].hasOut = true;
+        points[(size_t) index].outBeat = beat;
+        points[(size_t) index].outValue = value;
     }
 
     int lastIndex() const { return (int) points.size() - 1; }
@@ -89,14 +181,16 @@ public:
 
         if ((int) points.size() < 2)
         {
-            points.push_back({ std::max(0.25, lengthBeats), points.back().value, false });
+            CurvePoint p; p.beat = std::max(0.25, lengthBeats); p.value = points.back().value;
+            points.push_back(p);
             return points.back().beat;
         }
 
         points.back().shaper = false;
         if (points.back().beat < lengthBeats - 1.0e-6)
         {
-            points.push_back({ lengthBeats, points.back().value, false });
+            CurvePoint p; p.beat = lengthBeats; p.value = points.back().value;
+            points.push_back(p);
             return lengthBeats;
         }
         return points.back().beat;
@@ -130,12 +224,16 @@ public:
         const double span = R.beat - L.beat;
         if (span < 1.0e-9)
             return R.value;
+
+        if (L.hasOut || R.hasIn)
+            return sampleBezier(L, R, beat);
+
         const float t = (float) ((beat - L.beat) / span);
 
         if (! L.shaper && ! R.shaper)
             return L.value + t * (R.value - L.value);   // straight segment
 
-        // curved run: widen to the enclosing hard points, Catmull-Rom in value
+        // legacy Catmull-Rom fallback: a run of bendPoint -> shapers... -> bendPoint
         int a = (int) i;
         while (a > 0 && points[(size_t) a].shaper) --a;
         int b = (int) i + 1;
@@ -150,16 +248,66 @@ public:
     }
 
 private:
+    // Cubic Bezier between L and R using whichever of L's out-handle / R's
+    // in-handle are set (an unset one degenerates that side to a straight
+    // tangent, i.e. the control point sits on L or R itself). Beat isn't a
+    // linear function of the Bezier parameter t once handles are involved, so
+    // solve for t by bisection - X(t) is guaranteed monotonic because handle
+    // beats are always clamped to stay within [L.beat, R.beat] by whoever sets
+    // them (the editor).
+    float sampleBezier(const CurvePoint& L, const CurvePoint& R, double beat) const
+    {
+        const double c1beat = L.hasOut ? L.outBeat : L.beat;
+        const float  c1val  = L.hasOut ? L.outValue : L.value;
+        const double c2beat = R.hasIn ? R.inBeat : R.beat;
+        const float  c2val  = R.hasIn ? R.inValue : R.value;
+
+        auto xAt = [&](double t)
+        {
+            const double mt = 1.0 - t;
+            return mt * mt * mt * L.beat + 3.0 * mt * mt * t * c1beat
+                 + 3.0 * mt * t * t * c2beat + t * t * t * R.beat;
+        };
+
+        double tLo = 0.0, tHi = 1.0;
+        for (int iter = 0; iter < 24; ++iter)
+        {
+            const double tMid = 0.5 * (tLo + tHi);
+            if (xAt(tMid) < beat) tLo = tMid; else tHi = tMid;
+        }
+        const double t = 0.5 * (tLo + tHi);
+        const double mt = 1.0 - t;
+        return (float) (mt * mt * mt * L.value + 3.0 * mt * mt * t * c1val
+                       + 3.0 * mt * t * t * c2val + t * t * t * R.value);
+    }
+
     float defaultVal;
     std::vector<CurvePoint> points;
 };
 
 enum class BendShape { straight = 0, sine = 1, triangle = 2 };
 
+// A sine/triangle wave riding on top of the chord between two points on the
+// note, picked in the editor (Shift-click a pair of bend points). A note can
+// have any number of these, each independent, as long as they don't overlap.
+struct WaveSection
+{
+    double fromBeat = 0.0;
+    double toBeat   = 1.0;
+    BendShape shape = BendShape::sine;
+    float cycles    = 4.0f;    // cycle count; always a multiple of 0.5 so the wave
+                                // returns to the chord at the end point
+    float skew      = 1.0f;    // phase warp: >1 bunches cycles toward the end
+    float ampStart  = 0.0f;    // wave amplitude (semitones) at the start point
+    float ampEnd    = 0.25f;   // wave amplitude (semitones) at the end point
+
+    float cycleCount() const { return juce::jmax(1.0f, cycles); }
+    bool containsBeat(double beat) const { return beat >= fromBeat - 1.0e-9 && beat <= toBeat + 1.0e-9; }
+};
+
 // One note in the piano roll. Its pitch over time is `pitch` (the base key) plus
-// the `bend` chord (piecewise-linear through the bend points), plus - when `shape`
-// is not straight - a sine/triangle wave riding on the chord whose cycle count,
-// horizontal skew and start/end amplitude are all editable.
+// the `bend` chord (piecewise-linear/Bezier through the bend points), plus
+// whatever `waveSections` cover the sampled beat.
 struct MpeNote
 {
     juce::Uuid id;
@@ -171,36 +319,7 @@ struct MpeNote
     float releaseVelocity = 0.5f;
 
     ExpressionCurve bend { 0.0f };
-
-    BendShape shape = BendShape::straight;
-    float shapeCycles   = 4.0f;    // cycle count between the two bend points; always a multiple
-                                   // of 0.5 so the wave returns to the chord at the end point
-    float shapeSkew     = 1.0f;    // phase warp: >1 bunches cycles toward the end
-    float shapeAmpStart = 0.0f;    // wave amplitude (semitones) at the start point
-    float shapeAmpEnd   = 2.0f;    // wave amplitude (semitones) at the end point
-
-    // The wave rides on top of the chord between two bend points, picked in the
-    // editor (Shift-click a pair of points). -1 means "not set" - the wave then
-    // spans the whole note, first bend point to last, as it always used to.
-    double shapeFromBeat = -1.0;
-    double shapeToBeat   = -1.0;
-
-    bool hasShapeRange() const { return shapeFromBeat >= 0.0 && shapeToBeat > shapeFromBeat; }
-    // Clamped to the note's current bend span, so shrinking a note after picking a
-    // section (e.g. dragging its end in) can't leave the wave reaching past the end.
-    double shapeSpanFirstBeat() const
-    {
-        return hasShapeRange() ? juce::jlimit(0.0, bend.lastBeat(), shapeFromBeat) : bend.firstBeat();
-    }
-    double shapeSpanLastBeat() const
-    {
-        if (! hasShapeRange())
-            return std::max(bend.lastBeat(), bend.firstBeat() + 1.0e-6);
-        const double first = shapeSpanFirstBeat();
-        return std::max(first + 1.0e-6, juce::jlimit(first, bend.lastBeat(), shapeToBeat));
-    }
-
-    float shapeCycleCount() const { return juce::jmax(1.0f, shapeCycles); }
+    std::vector<WaveSection> waveSections;
 
     bool muted = false;   // skipped by the engine; drawn hollow in the roll
 
@@ -210,37 +329,38 @@ struct MpeNote
     double endBeat() const { return startBeat + lengthBeats; }
     bool isActiveAt(double beat) const { return beat >= startBeat && beat < endBeat(); }
 
-    // Full semitone offset at a note-relative beat: chord + parametric wave.
+    // Full semitone offset at a note-relative beat: chord + whichever wave
+    // section (if any) covers this beat.
     float bendOffsetAt(double beatOffset) const
     {
         const float chord = bend.sample(beatOffset);
-        if (shape == BendShape::straight)
-            return chord;
-
-        const double first = shapeSpanFirstBeat();
-        const double last  = shapeSpanLastBeat();
-        if (beatOffset < first - 1.0e-9 || beatOffset > last + 1.0e-9)
-            return chord;   // outside the picked section - straight chord, no wave
-
-        const float t = (float) juce::jlimit(0.0, 1.0, (beatOffset - first) / (last - first));
-
-        const float amp    = shapeAmpStart + t * (shapeAmpEnd - shapeAmpStart);
-        const float skew   = juce::jlimit(0.2f, 5.0f, shapeSkew);
-        const float phase  = std::pow(t, skew) * shapeCycleCount();
-
-        float w;
-        if (shape == BendShape::sine)
+        for (auto& ws : waveSections)
         {
-            w = std::sin(phase * juce::MathConstants<float>::twoPi);
+            if (! ws.containsBeat(beatOffset))
+                continue;
+
+            const double span = juce::jmax(1.0e-6, ws.toBeat - ws.fromBeat);
+            const float t = (float) juce::jlimit(0.0, 1.0, (beatOffset - ws.fromBeat) / span);
+
+            const float amp   = ws.ampStart + t * (ws.ampEnd - ws.ampStart);
+            const float skew  = juce::jlimit(0.2f, 5.0f, ws.skew);
+            const float phase = std::pow(t, skew) * ws.cycleCount();
+
+            float w;
+            if (ws.shape == BendShape::sine)
+            {
+                w = std::sin(phase * juce::MathConstants<float>::twoPi);
+            }
+            else
+            {
+                const float p = phase - std::floor(phase);   // 0..1
+                w = (p < 0.25f) ? 4.0f * p
+                  : (p < 0.75f) ? 2.0f - 4.0f * p
+                                : 4.0f * p - 4.0f;            // 0 -> 1 -> 0 -> -1 -> 0
+            }
+            return chord + w * amp;
         }
-        else
-        {
-            const float p = phase - std::floor(phase);   // 0..1
-            w = (p < 0.25f) ? 4.0f * p
-              : (p < 0.75f) ? 2.0f - 4.0f * p
-                            : 4.0f * p - 4.0f;            // 0 -> 1 -> 0 -> -1 -> 0
-        }
-        return chord + w * amp;
+        return chord;
     }
 
     float bendAtAbsBeat(double absBeat) const { return bendOffsetAt(absBeat - startBeat); }
