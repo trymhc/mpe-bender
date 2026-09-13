@@ -97,9 +97,16 @@ Remove-Item $stage -Recurse -Force
 Write-Host "  $zipPath" -ForegroundColor Green
 
 # --- GitHub release ---
-$ghArgs = @('release','create',$tag,'--repo',$Repo,'--title',"MPE Bender $version",'--notes',$notesText,$zipPath)
+# Notes go through a temp file, not --notes directly: PowerShell's native-exe
+# argument passing can mangle a string containing embedded double quotes (e.g.
+# "Top bar..." in a past release's notes), so --notes-file sidesteps that
+# entirely - gh just reads the file.
+$notesTempFile = Join-Path $dist "release-notes-$tag.txt"
+[System.IO.File]::WriteAllText($notesTempFile, $notesText, (New-Object System.Text.UTF8Encoding($false)))
+$ghArgs = @('release','create',$tag,'--repo',$Repo,'--title',"MPE Bender $version",'--notes-file',$notesTempFile,$zipPath)
 if ($DraftRelease) { $ghArgs += '--draft' }
 Run $gh $ghArgs
+Remove-Item $notesTempFile -Force -ErrorAction SilentlyContinue
 
 # --- manifest: rewrite, commit, push ---
 $manifest = [ordered]@{ version = $version; download = $download; notes = $notesText }
