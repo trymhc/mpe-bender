@@ -19,8 +19,6 @@ struct GlobalPrefs
     bool snapToScale = false;
     int gridDivision = 4;
     double loopLengthBeats = 32.0;
-    juce::uint32 topBarColourArgb = 0;       // 0 = "not customised, use the theme default"
-    juce::uint32 settingsBgColourArgb = 0;
 
     static juce::File storageFile()
     {
@@ -42,8 +40,6 @@ struct GlobalPrefs
             p.snapToScale = xml->getBoolAttribute("snapToScale", p.snapToScale);
             p.gridDivision = xml->getIntAttribute("gridDivision", p.gridDivision);
             p.loopLengthBeats = xml->getDoubleAttribute("loopLengthBeats", p.loopLengthBeats);
-            p.topBarColourArgb = (juce::uint32) xml->getStringAttribute("topBarColour", "0").getLargeIntValue();
-            p.settingsBgColourArgb = (juce::uint32) xml->getStringAttribute("settingsBgColour", "0").getLargeIntValue();
         }
         return p;
     }
@@ -60,8 +56,6 @@ struct GlobalPrefs
         xml.setAttribute("snapToScale", snapToScale);
         xml.setAttribute("gridDivision", gridDivision);
         xml.setAttribute("loopLengthBeats", loopLengthBeats);
-        xml.setAttribute("topBarColour", juce::String((juce::int64) topBarColourArgb));
-        xml.setAttribute("settingsBgColour", juce::String((juce::int64) settingsBgColourArgb));
         storageFile().getParentDirectory().createDirectory();
         xml.writeTo(storageFile());
     }

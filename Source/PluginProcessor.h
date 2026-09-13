@@ -123,12 +123,6 @@ public:
     static constexpr int gridDivisionPresets[] = { 1, 2, 3, 4, 6, 8, 12, 16 };
     static constexpr int numGridDivisionPresets = 8;
 
-    // --- Customisable background colours (Settings tab); 0 = theme default ---
-    void setTopBarColourArgb(juce::uint32 argb);
-    juce::uint32 getTopBarColourArgb() const { return topBarColourArgb; }
-    void setSettingsBgColourArgb(juce::uint32 argb);
-    juce::uint32 getSettingsBgColourArgb() const { return settingsBgColourArgb; }
-
     double getUiPlayheadBeat() const { return uiPlayheadBeat.load(std::memory_order_relaxed); }
     bool getUiIsPlaying() const { return uiIsPlaying.load(std::memory_order_relaxed); }
 
@@ -177,9 +171,6 @@ private:
     int scaleType = 0;         // Scale::chromatic (viewer off)
     bool snapToScale = false;
     int gridDivision = 4;      // grid = 1/4 beat (a 16th note)
-
-    juce::uint32 topBarColourArgb = 0;       // 0 = theme default
-    juce::uint32 settingsBgColourArgb = 0;
 
     // undo/redo snapshots (message-thread only)
     std::vector<std::vector<MpeNote>> undoStack, redoStack;

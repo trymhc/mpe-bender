@@ -20,8 +20,6 @@ MpePianoRollAudioProcessor::MpePianoRollAudioProcessor()
     snapToScale = prefs.snapToScale;
     gridDivision = prefs.gridDivision;
     loopLengthBeats = juce::jmax(0.25, prefs.loopLengthBeats);
-    topBarColourArgb = prefs.topBarColourArgb;
-    settingsBgColourArgb = prefs.settingsBgColourArgb;
 
     // The standalone has no host feeding it notes, so default it to free-run;
     // inside a DAW default to gated (silent until the channel sends a note).
@@ -46,8 +44,6 @@ void MpePianoRollAudioProcessor::saveGlobalPrefs() const
     p.snapToScale = snapToScale;
     p.gridDivision = gridDivision;
     p.loopLengthBeats = loopLengthBeats;
-    p.topBarColourArgb = topBarColourArgb;
-    p.settingsBgColourArgb = settingsBgColourArgb;
     p.save();
 }
 
@@ -251,18 +247,6 @@ void MpePianoRollAudioProcessor::setScaleType(int t)
 void MpePianoRollAudioProcessor::setSnapToScale(bool s)
 {
     snapToScale = s;
-    saveGlobalPrefs();
-}
-
-void MpePianoRollAudioProcessor::setTopBarColourArgb(juce::uint32 argb)
-{
-    topBarColourArgb = argb;
-    saveGlobalPrefs();
-}
-
-void MpePianoRollAudioProcessor::setSettingsBgColourArgb(juce::uint32 argb)
-{
-    settingsBgColourArgb = argb;
     saveGlobalPrefs();
 }
 
@@ -499,8 +483,6 @@ void MpePianoRollAudioProcessor::getStateInformation(juce::MemoryBlock& destData
     state.setProperty("scaleType", scaleType, nullptr);
     state.setProperty("snapToScale", snapToScale, nullptr);
     state.setProperty("gridDivision", gridDivision, nullptr);
-    state.setProperty("topBarColour", (juce::int64) topBarColourArgb, nullptr);
-    state.setProperty("settingsBgColour", (juce::int64) settingsBgColourArgb, nullptr);
 
     if (hostedPlugin.isLoaded())
     {
@@ -591,8 +573,6 @@ void MpePianoRollAudioProcessor::setStateInformation(const void* data, int sizeI
     scaleType = (int) state.getProperty("scaleType", 0);
     snapToScale = (bool) state.getProperty("snapToScale", false);
     gridDivision = juce::jlimit(1, 32, (int) state.getProperty("gridDivision", gridDivision));
-    topBarColourArgb = (juce::uint32) (juce::int64) state.getProperty("topBarColour", (juce::int64) topBarColourArgb);
-    settingsBgColourArgb = (juce::uint32) (juce::int64) state.getProperty("settingsBgColour", (juce::int64) settingsBgColourArgb);
     zoneConfigSent = false;
     undoStack.clear();
     redoStack.clear();

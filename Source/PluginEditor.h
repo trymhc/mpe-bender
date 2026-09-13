@@ -13,8 +13,7 @@
 #include <functional>
 
 class MpePianoRollAudioProcessorEditor final : public juce::AudioProcessorEditor,
-                                                private juce::Timer,
-                                                private juce::ChangeListener
+                                                private juce::Timer
 {
 public:
     explicit MpePianoRollAudioProcessorEditor(MpePianoRollAudioProcessor&);
@@ -44,14 +43,6 @@ private:
     // a plugin instance), the UI catches up instead of staying stuck on whatever
     // it showed at construction.
     void refreshSettingsFromProcessor();
-
-    // custom background colours (Settings tab)
-    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
-    void showColourPicker(juce::Component& attachTo, juce::Colour initial,
-                          std::function<void(juce::Colour)> onChange);
-    juce::Colour currentTopBarColour() const;
-    juce::Colour currentSettingsBgColour() const;
-    void refreshColourSwatches();
 
     enum class Tab { roll, settings };
     void showTab(Tab t);
@@ -89,12 +80,6 @@ private:
     juce::Label themeLabel { {}, "Theme" };
     juce::ComboBox themeBox;
     void applyTheme(Theme::Id id, bool store);
-
-    juce::Label bgColourLabel { {}, "Background colours" };
-    juce::TextButton topBarColourButton { "Top bar..." };
-    juce::TextButton settingsBgColourButton { "Settings..." };
-    juce::TextButton resetColoursButton { "Reset" };
-    std::function<void(juce::Colour)> activeColourCallback;
 
     juce::Label scaleLabel { {}, "Scale" };
     juce::ComboBox scaleRootBox, scaleTypeBox;
